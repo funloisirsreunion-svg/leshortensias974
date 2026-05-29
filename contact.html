@@ -100,11 +100,24 @@
             <label for="sejour">Objet de la demande</label>
             <select id="sejour" name="sejour">
               <option value="">-- Choisir --</option>
-              <option value="colonies">Colonies de vacances (6-14 ans)</option>
-              <option value="classes">Classe Volcans &amp; Nature</option>
-              <option value="seniors">Séjour Seniors</option>
-              <option value="erasmus">Séjour Erasmus+</option>
-              <option value="autre">Autre</option>
+              <optgroup label="🏕️ Colonies de vacances (6-14 ans)">
+                <option value="colonies-sejour1">Séjour 1 — 12 au 18 juillet 2026</option>
+                <option value="colonies-sejour2">Séjour 2 — 2 au 8 août 2026</option>
+              </optgroup>
+              <optgroup label="🌋 Classes Volcans &amp; Nature">
+                <option value="classes-p1">Classe Volcan / Nature — Période 1</option>
+                <option value="classes-p2">Classe Volcan / Nature — Période 2</option>
+                <option value="classes-p3">Classe Volcan / Nature — Période 3</option>
+                <option value="classes-p4">Classe Volcan / Nature — Période 4</option>
+                <option value="classes-p5">Classe Volcan / Nature — Période 5</option>
+              </optgroup>
+              <optgroup label="🌍 Séjour Erasmus+">
+                <option value="erasmus">Prochain programme Erasmus+</option>
+              </optgroup>
+              <optgroup label="🏨 Groupes Indépendants">
+                <option value="groupes">Hébergement &amp; Restauration groupe</option>
+              </optgroup>
+              <option value="autre">Autre demande</option>
             </select>
           </div>
           <div class="form-group">
