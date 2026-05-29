@@ -273,6 +273,10 @@ img { max-width:100%; display:block; }
   gap:12px; color:rgba(255,255,255,.85); font-size:.9rem; font-weight:600;
 }
 .galerie-placeholder span { font-size:2.5rem; }
+.galerie-item img { width:100%; height:100%; object-fit:cover; display:block; min-height:200px; }
+.affiche-img { width:100%; max-width:420px; border-radius:var(--radius); box-shadow:var(--ombre-forte); display:block; margin:0 auto; }
+.planning-img { width:100%; border-radius:var(--radius-sm); box-shadow:var(--ombre); display:block; margin:20px 0; cursor:zoom-in; }
+.planning-img:hover { box-shadow:var(--ombre-forte); }
 .galerie-note { text-align:center; color:var(--texte-clair); font-size:.9rem; }
 .galerie-note a { color:var(--vert-fonce); font-weight:700; text-decoration:underline; }
 
