@@ -432,6 +432,26 @@ img { max-width:100%; display:block; }
 .program-panel { display:none; }
 .program-panel.active { display:block; }
 
+/* ===== SOUS-ONGLETS DURÉE ===== */
+.sub-tabs { display:flex; gap:8px; margin:16px 0 24px; flex-wrap:wrap; }
+.sub-tab { padding:8px 20px; cursor:pointer; font-weight:700; font-size:.85rem; color:var(--texte-clair); background:var(--beige-fonce); border-radius:var(--radius); transition:var(--transition); }
+.sub-tab.active { background:var(--vert-fonce); color:var(--blanc); }
+.sub-tab:hover:not(.active) { background:var(--vert-clair); color:var(--blanc); }
+.sub-panel { display:none; }
+.sub-panel.active { display:block; }
+
+/* ===== TARIFS TABLE ===== */
+.tarifs-section { margin-top:56px; padding-top:40px; border-top:2px solid var(--beige-fonce); }
+.tarifs-table-wrap { overflow-x:auto; margin-top:24px; }
+.tarifs-table { width:100%; border-collapse:collapse; font-size:.82rem; min-width:680px; }
+.tarifs-table th { background:var(--vert-fonce); color:var(--blanc); padding:10px 8px; text-align:center; font-size:.75rem; text-transform:uppercase; letter-spacing:.4px; line-height:1.3; }
+.tarifs-table th.th-nature { background:#2d8a5e; }
+.tarifs-table td { padding:9px 10px; border:1px solid var(--beige-fonce); text-align:center; vertical-align:middle; }
+.tarifs-table tr:nth-child(even) td { background:var(--gris-clair); }
+.tarifs-table .price-cell { font-size:1rem; font-weight:700; color:var(--vert-fonce); }
+.tarifs-table .price-sub { font-size:.72rem; color:var(--texte-clair); display:block; }
+.tarifs-free { color:#c0392b; font-weight:700; }
+
 /* ===== SCHEDULE TABLE ===== */
 .schedule-wrap { overflow-x:auto; }
 .schedule-table { width:100%; border-collapse:collapse; font-size:.85rem; margin-top:16px; }

@@ -56,6 +56,17 @@ document.querySelectorAll('.service-card, .about-inner, .galerie-item, .contact-
 });
 
 // Tabs programme (page classes)
+document.querySelectorAll('.sub-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const panel = tab.closest('.program-panel');
+    panel.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+    panel.querySelectorAll('.sub-panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    const target = document.getElementById(tab.dataset.target);
+    if (target) target.classList.add('active');
+  });
+});
+
 document.querySelectorAll('.program-tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.program-tab').forEach(t => t.classList.remove('active'));
