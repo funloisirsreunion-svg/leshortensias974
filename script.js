@@ -55,6 +55,9 @@ document.querySelectorAll('.service-card, .about-inner, .galerie-item, .contact-
   observer.observe(el);
 });
 
+// Observer aussi les éléments avec fade-in défini directement en HTML (ex: inscription.html)
+document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
 // Tabs programme (page classes)
 document.querySelectorAll('.sub-tab').forEach(tab => {
   tab.addEventListener('click', () => {
