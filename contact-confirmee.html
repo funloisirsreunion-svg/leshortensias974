@@ -3,58 +3,27 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Demande envoyée – Les Hortensias</title>
+  <title>Message envoyé – Les Hortensias</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
   <style>
-    .confirm-section {
-      min-height: 70vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 80px 24px;
-      background: var(--gris-clair);
-    }
-    .confirm-card {
-      background: var(--blanc);
-      border-radius: var(--radius);
-      box-shadow: var(--ombre-forte);
-      padding: 60px 56px;
-      max-width: 640px;
-      width: 100%;
-      text-align: center;
-    }
-    .confirm-icon { font-size: 4rem; display: block; margin-bottom: 20px; }
-    .confirm-card h1 { font-size: 2rem; color: var(--vert-fonce); margin-bottom: 16px; }
-    .confirm-card p  { color: var(--texte-clair); font-size: 1rem; line-height: 1.7; margin-bottom: 12px; }
-    .confirm-card strong { color: var(--texte); }
-    .confirm-steps {
-      background: var(--beige);
-      border-radius: var(--radius-sm);
-      padding: 24px 28px;
-      margin: 28px 0 36px;
-      text-align: left;
-    }
-    .confirm-steps h3 { color: var(--vert-fonce); font-size: 1rem; margin-bottom: 14px; }
-    .confirm-steps ol { padding-left: 20px; display: flex; flex-direction: column; gap: 10px; }
-    .confirm-steps li { font-size: .95rem; color: var(--texte); line-height: 1.5; }
-    .confirm-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
-    @media (max-width: 540px) {
-      .confirm-card { padding: 40px 20px; }
-      .confirm-actions { flex-direction: column; align-items: center; }
-    }
+    .confirm-section { min-height:70vh; display:flex; align-items:center; justify-content:center; padding:80px 24px; background:var(--gris-clair); }
+    .confirm-card { background:var(--blanc); border-radius:var(--radius); box-shadow:var(--ombre-forte); padding:60px 56px; max-width:600px; width:100%; text-align:center; }
+    .confirm-icon { font-size:4rem; display:block; margin-bottom:20px; }
+    .confirm-card h1 { font-size:1.9rem; color:var(--vert-fonce); margin-bottom:14px; }
+    .confirm-card p  { color:var(--texte-clair); font-size:1rem; line-height:1.7; margin-bottom:12px; }
+    .confirm-card strong { color:var(--texte); }
+    .confirm-actions { display:flex; gap:14px; justify-content:center; flex-wrap:wrap; margin-top:32px; }
+    @media (max-width:480px) { .confirm-card { padding:36px 18px; } .confirm-actions { flex-direction:column; align-items:center; } }
   </style>
 </head>
 <body>
 
   <nav id="navbar">
     <div class="nav-container">
-      <a href="index.html" class="nav-logo">
-        <span class="logo-icon">🌸</span>
-        <span class="logo-text">Les Hortensias</span>
-      </a>
+      <a href="index.html" class="nav-logo"><span class="logo-icon">🌸</span><span class="logo-text">Les Hortensias</span></a>
       <button class="nav-toggle" id="navToggle" aria-label="Menu"><span></span><span></span><span></span></button>
       <ul class="nav-links" id="navLinks">
         <li><a href="index.html">Accueil</a></li>
@@ -69,7 +38,7 @@
             <li><a href="inscription.html" class="dropdown-insc">📝 Demande d'inscription</a></li>
           </ul>
         </li>
-        <li><a href="contact.html">Contact</a></li>
+        <li><a href="contact.html" class="active">Contact</a></li>
         <li><a href="tel:0692578195" class="nav-cta">📞 06 92 57 81 95</a></li>
       </ul>
     </div>
@@ -78,20 +47,10 @@
   <section class="confirm-section">
     <div class="confirm-card">
       <span class="confirm-icon">✅</span>
-      <h1>Demande bien envoyée !</h1>
-      <p>Merci pour votre confiance. Votre demande de pré-inscription a été transmise à l'équipe de <strong>Fun Loisirs Réunion</strong>.</p>
-
-      <div class="confirm-steps">
-        <h3>Et maintenant ?</h3>
-        <ol>
-          <li>Fun Loisirs Réunion vérifie vos pièces justificatives.</li>
-          <li>Vous serez contacté(e) <strong>sous 48 h</strong> par téléphone ou email pour confirmer la place.</li>
-          <li>Après confirmation, vous recevrez la <strong>fiche sanitaire</strong> à remplir avant le départ.</li>
-        </ol>
-      </div>
-
-      <p>Une question ? Contactez-nous directement :</p>
-
+      <h1>Message bien reçu !</h1>
+      <p>Merci de nous avoir contacté. Votre message a été transmis à l'équipe de <strong>Fun Loisirs Réunion</strong>.</p>
+      <p>Nous vous répondrons <strong>sous 24h</strong> par email ou téléphone.</p>
+      <p>Pour une réponse encore plus rapide, vous pouvez aussi nous joindre directement par WhatsApp ou téléphone.</p>
       <div class="confirm-actions">
         <a href="tel:0692578195" class="btn btn-primary">📞 06 92 57 81 95</a>
         <a href="https://wa.me/262692578195" target="_blank" rel="noopener" class="btn btn-card">💬 WhatsApp</a>
@@ -103,9 +62,8 @@
   <footer class="footer">
     <div class="container footer-inner">
       <div class="footer-brand">
-        <span class="logo-icon">🌸</span>
-        <span class="logo-text">Les Hortensias</span>
-        <p>Centre de vacances à La Plaine des Palmistes, La Réunion. Une association <strong>Fun Loisir</strong>.</p>
+        <span class="logo-icon">🌸</span><span class="logo-text">Les Hortensias</span>
+        <p>Centre de vacances à La Plaine des Palmistes, La Réunion. Géré par l'association <strong>Fun Loisirs Réunion</strong>.</p>
       </div>
       <div class="footer-links">
         <h4>Nos séjours</h4>

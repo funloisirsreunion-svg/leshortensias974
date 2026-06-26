@@ -77,23 +77,12 @@ document.querySelectorAll('.program-tab').forEach(tab => {
   });
 });
 
-// Formulaire de contact
+// Formulaire de contact — désactiver le bouton pendant l'envoi (POST vers FormSubmit)
 const contactForm = document.getElementById('contactForm');
 if (contactForm) {
-  contactForm.addEventListener('submit', function(e) {
-    e.preventDefault();
+  contactForm.addEventListener('submit', function() {
     const btn = this.querySelector('button[type=submit]');
-    const nom = this.nom.value;
-    btn.textContent = 'Message envoyé ✓';
-    btn.style.background = '#4a7c59';
+    btn.textContent = 'Envoi en cours…';
     btn.disabled = true;
-    const subject = encodeURIComponent('Demande de renseignement – Les Hortensias');
-    const body = encodeURIComponent(
-      `Nom : ${nom} ${this.prenom?.value || ''}\n` +
-      `Email : ${this.email.value}\n` +
-      `Séjour : ${this.sejour?.value || ''}\n\n` +
-      `${this.message.value}`
-    );
-    window.location.href = `mailto:leshortensias97431@gmail.com?subject=${subject}&body=${body}`;
   });
 }

@@ -25,6 +25,8 @@
             <li><a href="classe-volcan-nature.html">🌋 Classes Volcans &amp; Nature</a></li>
             <li><a href="groupes-independants.html">🏨 Groupes Indépendants</a></li>
             <li><a href="erasmus.html">🌍 Séjours Erasmus+</a></li>
+            <li class="dropdown-sep"></li>
+            <li><a href="inscription.html" class="dropdown-insc">📝 Demande d'inscription</a></li>
           </ul>
         </li>
         <li><a href="contact.html" class="active">Contact</a></li>
@@ -76,29 +78,36 @@
       </div>
 
       <div class="contact-form-wrap">
-        <form class="contact-form" id="contactForm">
+        <form class="contact-form" id="contactForm"
+          action="https://formsubmit.co/leshortensias97431@gmail.com"
+          method="POST">
+          <input type="hidden" name="_subject"  value="✉️ Message reçu via le site – Les Hortensias">
+          <input type="hidden" name="_template" value="table">
+          <input type="hidden" name="_next"     value="https://leshortensias974.vercel.app/contact-confirmee.html">
+          <input type="hidden" name="_captcha"  value="false">
+          <input type="text"   name="_honey"    style="display:none" tabindex="-1" autocomplete="off">
           <h3>Envoyer un message</h3>
           <div class="form-row">
             <div class="form-group">
               <label for="nom">Nom *</label>
-              <input type="text" id="nom" name="nom" placeholder="Votre nom" required />
+              <input type="text" id="nom" name="Nom" placeholder="Votre nom" required />
             </div>
             <div class="form-group">
               <label for="prenom">Prénom</label>
-              <input type="text" id="prenom" name="prenom" placeholder="Votre prénom" />
+              <input type="text" id="prenom" name="Prénom" placeholder="Votre prénom" />
             </div>
           </div>
           <div class="form-group">
             <label for="email">Email *</label>
-            <input type="email" id="email" name="email" placeholder="votre@email.com" required />
+            <input type="email" id="email" name="Email" placeholder="votre@email.com" required />
           </div>
           <div class="form-group">
             <label for="telephone">Téléphone</label>
-            <input type="tel" id="telephone" name="telephone" placeholder="06 XX XX XX XX" />
+            <input type="tel" id="telephone" name="Téléphone" placeholder="06 XX XX XX XX" />
           </div>
           <div class="form-group">
             <label for="sejour">Objet de la demande</label>
-            <select id="sejour" name="sejour">
+            <select id="sejour" name="Objet de la demande">
               <option value="">-- Choisir --</option>
               <optgroup label="🏕️ Colonies de vacances (6-14 ans)">
                 <option value="colonies-sejour1">Séjour 1 — 12 au 18 juillet 2026</option>
@@ -122,7 +131,7 @@
           </div>
           <div class="form-group">
             <label for="message">Message *</label>
-            <textarea id="message" name="message" rows="4" placeholder="Décrivez votre projet, vos dates, le nombre de participants..." required></textarea>
+            <textarea id="message" name="Message" rows="4" placeholder="Décrivez votre projet, vos dates, le nombre de participants..." required></textarea>
           </div>
           <button type="submit" class="btn btn-primary btn-full">Envoyer le message</button>
           <p class="form-note">Nous vous répondons sous 24h. Vous pouvez aussi nous contacter directement par téléphone ou WhatsApp.</p>
@@ -172,7 +181,7 @@
     <div class="container footer-inner">
       <div class="footer-brand">
         <span class="logo-icon">🌸</span><span class="logo-text">Les Hortensias</span>
-        <p>Centre de vacances à La Plaine des Palmistes, La Réunion. Une association <strong>Fun Loisir</strong>.</p>
+        <p>Centre de vacances à La Plaine des Palmistes, La Réunion. Géré par l'association <strong>Fun Loisirs Réunion</strong>.</p>
       </div>
       <div class="footer-links">
         <h4>Nos séjours</h4>
