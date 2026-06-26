@@ -6,21 +6,23 @@
 // ================================================================
 const COLONIES = [
   {
-    id: 'colo-toussaint-2026',
-    nom: 'Colonie Toussaint 2026',
+    id: 'colo-octobre-2026',
+    nom: 'Colonie d\'Octobre 2026 — 11 au 22 oct.',
     ages: '6 – 14 ans',
-    tarif: 350,
-    duree: '7 nuits',
-    aides: 'Aide CAF, Pass Colo et VACAF acceptés',
-    description: 'Une semaine de découverte au cœur de la forêt réunionnaise — Laser Game, sortie au Zoo de Casela, randonnées et soirées à thème.',
+    tarif: 600,
+    tarifCAF: 180,
+    duree: '12 jours (11 au 22 octobre 2026)',
+    aides: 'Aide CAF jusqu\'à 420 € → reste à charge 180 € · Pass Colo · VACAF',
+    description: '12 jours d\'aventure à La Plaine des Palmistes : Laser Game, Accro Roc, sortie au Zoo de Casela, Piscine, Parc du Colosse, randonnées et veillées animées.',
   },
   // ── Ajouter un nouveau séjour en copiant le bloc ci-dessous ──
   // {
-  //   id: 'colo-ete-2027',            // identifiant unique (pas d'espaces)
-  //   nom: 'Colonie Été 2027',         // nom affiché dans le formulaire
+  //   id: 'colo-ete-2027',             // identifiant unique (pas d'espaces)
+  //   nom: 'Colonie Été 2027',          // nom affiché dans le formulaire
   //   ages: '6 – 14 ans',
-  //   tarif: 350,                      // tarif en euros
-  //   duree: '7 nuits',
+  //   tarif: 600,                       // tarif public en euros
+  //   tarifCAF: 180,                    // reste à charge avec aide CAF (optionnel)
+  //   duree: '12 jours',
   //   aides: 'Aide CAF, Pass Colo et VACAF acceptés',
   //   description: 'Description du séjour...',
   // },
@@ -72,7 +74,8 @@ const COLONIES = [
       <div class="colonie-info-box">
         <div class="ci-row"><span>👦</span><div><strong>Âge</strong><span>${c.ages}</span></div></div>
         <div class="ci-row"><span>📅</span><div><strong>Durée</strong><span>${c.duree}</span></div></div>
-        <div class="ci-row"><span>💰</span><div><strong>Tarif</strong><span>${c.tarif} € par enfant</span></div></div>
+        <div class="ci-row"><span>💰</span><div><strong>Tarif public</strong><span>${c.tarif} €</span></div></div>
+        ${c.tarifCAF ? `<div class="ci-row"><span>🎉</span><div><strong>Avec aide CAF/VACAF</strong><span style="color:var(--vert-fonce);font-weight:700;">${c.tarifCAF} € reste à charge</span></div></div>` : ''}
         <div class="ci-row"><span>✅</span><div><strong>Aides acceptées</strong><span>${c.aides}</span></div></div>
         <p class="ci-desc">${c.description}</p>
       </div>`;
