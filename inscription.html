@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Demande d'inscription – Colonie de Vacances | Les Hortensias</title>
+  <meta name="description" content="Envoyez votre demande d'inscription pour la colonie de vacances Les Hortensias, La Plaine des Palmistes, La Réunion." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="inscription.css" />
+</head>
+<body>
+
+  <nav id="navbar">
+    <div class="nav-container">
+      <a href="index.html" class="nav-logo">
+        <span class="logo-icon">🌸</span>
+        <span class="logo-text">Les Hortensias</span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Menu"><span></span><span></span><span></span></button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="index.html">Accueil</a></li>
+        <li class="has-dropdown">
+          <a href="#" class="dropdown-trigger">Nos séjours <span class="dropdown-arrow">▾</span></a>
+          <ul class="dropdown-menu">
+            <li><a href="colonies.html">🏕️ Colonies (6-14 ans)</a></li>
+            <li><a href="classe-volcan-nature.html">🌋 Classes Volcans &amp; Nature</a></li>
+            <li><a href="groupes-independants.html">🏨 Groupes Indépendants</a></li>
+            <li><a href="erasmus.html">🌍 Séjours Erasmus+</a></li>
+          </ul>
+        </li>
+        <li><a href="contact.html">Contact</a></li>
+        <li><a href="tel:0692578195" class="nav-cta">📞 06 92 57 81 95</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <section class="page-hero">
+    <div class="page-hero-content">
+      <h1>Demande d'inscription</h1>
+      <p>Colonie de vacances · Centre Les Hortensias, La Plaine des Palmistes</p>
+    </div>
+  </section>
+
+  <div class="breadcrumb">
+    <div class="container breadcrumb-inner">
+      <a href="index.html">Accueil</a>
+      <span>›</span>
+      <a href="colonies.html">Colonies de vacances</a>
+      <span>›</span>
+      <span>Demande d'inscription</span>
+    </div>
+  </div>
+
+  <section class="insc-section">
+    <div class="container">
+
+      <!-- Bandeau informatif -->
+      <div class="alert-banner fade-in" style="max-width:760px;margin:0 auto 36px;">
+        <span class="alert-banner-icon">ℹ️</span>
+        <div>
+          <strong>Demande de pré-inscription</strong>
+          L'envoi de ce formulaire constitue une demande, pas une inscription définitive. Fun Loisirs Réunion vous contactera pour confirmer la place de votre enfant après vérification des pièces justificatives.
+        </div>
+      </div>
+
+      <!-- Barre de progression -->
+      <div class="insc-progress fade-in" id="inscProgress">
+        <div class="progress-steps-wrap">
+          <div class="progress-line">
+            <div class="progress-line-fill" id="progressLineFill"></div>
+          </div>
+          <div class="progress-steps-list">
+            <div class="prog-step active" data-step="1">
+              <div class="prog-dot"><span class="dot-num">1</span></div>
+              <span class="prog-label">Séjour</span>
+            </div>
+            <div class="prog-step" data-step="2">
+              <div class="prog-dot"><span class="dot-num">2</span></div>
+              <span class="prog-label">L'enfant</span>
+            </div>
+            <div class="prog-step" data-step="3">
+              <div class="prog-dot"><span class="dot-num">3</span></div>
+              <span class="prog-label">Famille</span>
+            </div>
+            <div class="prog-step" data-step="4">
+              <div class="prog-dot"><span class="dot-num">4</span></div>
+              <span class="prog-label">Documents</span>
+            </div>
+            <div class="prog-step" data-step="5">
+              <div class="prog-dot"><span class="dot-num">5</span></div>
+              <span class="prog-label">Confirmation</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Formulaire -->
+      <div class="insc-card fade-in">
+        <form
+          id="inscriptionForm"
+          action="https://formsubmit.co/leshortensias97431@gmail.com"
+          method="POST"
+          enctype="multipart/form-data"
+          novalidate
+        >
+          <!-- Config FormSubmit -->
+          <input type="hidden" name="_subject"  value="🏕️ Nouvelle demande d'inscription – Les Hortensias">
+          <input type="hidden" name="_template" value="table">
+          <input type="hidden" name="_next"     value="https://leshortensias974.vercel.app/inscription-confirmee.html">
+          <input type="hidden" name="_captcha"  value="false">
+          <input type="text"   name="_honey"    style="display:none" tabindex="-1" autocomplete="off">
+
+          <!-- Champs cachés mis à jour par le JS -->
+          <input type="hidden" id="valAge"   name="Âge au moment du séjour" value="">
+          <input type="hidden" id="valCaf"   name="Aide CAF / VACAF"        value="Non">
+          <input type="hidden" id="valPhoto" name="Autorisation photo/vidéo" value="Non">
+
+          <!-- ══════════ ÉTAPE 1 · Séjour ══════════ -->
+          <div class="insc-step active" id="step-1">
+            <div class="step-head">
+              <span class="step-tag">Étape 1 · Séjour</span>
+              <h2>Quel séjour souhaitez-vous ?</h2>
+              <p>Sélectionnez la colonie souhaitée. Les informations s'affichent automatiquement.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="colonieSelect">Choisir une colonie <span class="req">*</span></label>
+              <select id="colonieSelect" name="Colonie choisie" required>
+                <option value="">— Sélectionnez un séjour —</option>
+              </select>
+            </div>
+
+            <div id="colonieInfoBox" style="display:none"></div>
+          </div>
+
+          <!-- ══════════ ÉTAPE 2 · L'enfant ══════════ -->
+          <div class="insc-step" id="step-2">
+            <div class="step-head">
+              <span class="step-tag">Étape 2 · L'enfant</span>
+              <h2>Informations sur l'enfant</h2>
+              <p>Renseignez les informations de l'enfant qui participera au séjour.</p>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="enfantPrenom">Prénom <span class="req">*</span></label>
+                <input type="text" id="enfantPrenom" name="Prénom de l'enfant" required placeholder="ex : Léa" autocomplete="given-name">
+              </div>
+              <div class="form-group">
+                <label for="enfantNom">Nom <span class="req">*</span></label>
+                <input type="text" id="enfantNom" name="Nom de l'enfant" required placeholder="ex : Martin" autocomplete="family-name">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="enfantDdn">Date de naissance <span class="req">*</span></label>
+                <input type="date" id="enfantDdn" name="Date de naissance" required>
+                <span class="field-hint" id="ageCalc"></span>
+              </div>
+              <div class="form-group">
+                <label>Sexe <span class="req">*</span></label>
+                <div class="radio-cards" id="sexeGroup">
+                  <label class="radio-card">
+                    <input type="radio" name="Sexe" value="Fille">
+                    <span class="radio-card-inner">👧 Fille</span>
+                  </label>
+                  <label class="radio-card">
+                    <input type="radio" name="Sexe" value="Garçon">
+                    <span class="radio-card-inner">👦 Garçon</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="enfantAdresse">Adresse complète <span class="req">*</span></label>
+              <input type="text" id="enfantAdresse" name="Adresse" required placeholder="N° et nom de rue" autocomplete="street-address">
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="enfantCP">Code postal <span class="req">*</span></label>
+                <input type="text" id="enfantCP" name="Code postal" required placeholder="974xx" maxlength="5" inputmode="numeric" autocomplete="postal-code">
+              </div>
+              <div class="form-group">
+                <label for="enfantVille">Ville <span class="req">*</span></label>
+                <input type="text" id="enfantVille" name="Ville" required placeholder="ex : Saint-Pierre" autocomplete="address-level2">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="enfantEcole">Établissement scolaire <span class="req">*</span></label>
+              <input type="text" id="enfantEcole" name="Établissement scolaire" required placeholder="ex : École primaire Jules Reydellet">
+            </div>
+          </div>
+
+          <!-- ══════════ ÉTAPE 3 · Famille ══════════ -->
+          <div class="insc-step" id="step-3">
+            <div class="step-head">
+              <span class="step-tag">Étape 3 · Famille</span>
+              <h2>Responsable légal</h2>
+              <p>Informations du parent ou tuteur légal qui effectue la demande.</p>
+            </div>
+
+            <div class="form-group">
+              <label for="respNomPrenom">Nom et prénom <span class="req">*</span></label>
+              <input type="text" id="respNomPrenom" name="Responsable légal – Identité" required placeholder="ex : Marie Martin" autocomplete="name">
+            </div>
+
+            <div class="form-group">
+              <label for="respLien">Lien avec l'enfant <span class="req">*</span></label>
+              <select id="respLien" name="Responsable légal – Lien" required>
+                <option value="">— Sélectionnez —</option>
+                <option>Mère</option>
+                <option>Père</option>
+                <option>Tuteur légal</option>
+                <option>Autre</option>
+              </select>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
+                <label for="respTel">Téléphone <span class="req">*</span></label>
+                <input type="tel" id="respTel" name="Responsable légal – Téléphone" required placeholder="0692 xx xx xx" autocomplete="tel">
+              </div>
+              <div class="form-group">
+                <label for="respEmail">Adresse e-mail <span class="req">*</span></label>
+                <input type="email" id="respEmail" name="Responsable légal – Email" required placeholder="votre@email.com" autocomplete="email">
+              </div>
+            </div>
+          </div>
+
+          <!-- ══════════ ÉTAPE 4 · Documents ══════════ -->
+          <div class="insc-step" id="step-4">
+            <div class="step-head">
+              <span class="step-tag">Étape 4 · Documents</span>
+              <h2>Documents &amp; compléments</h2>
+              <p>Joignez vos fichiers depuis votre téléphone ou ordinateur · PDF, JPG, PNG · 5 Mo max par fichier</p>
+            </div>
+
+            <!-- Aide CAF -->
+            <div class="toggle-group" id="cafToggleGroup">
+              <div class="toggle-label">
+                <span class="toggle-title">Mon enfant bénéficie d'une aide CAF / VACAF</span>
+                <span class="toggle-sub">Aide CAF aux vacances, bon VACAF ou toute autre aide de la CAF</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="cafToggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div id="cafFields" class="conditional-block" style="display:none">
+              <div class="form-group" style="margin-bottom:0">
+                <label for="cafNumero">Numéro allocataire CAF <span class="req">*</span></label>
+                <input type="text" id="cafNumero" name="N° allocataire CAF" placeholder="ex : 1234567A">
+                <span class="field-hint">Disponible sur votre espace CAF en ligne ou sur vos attestations.</span>
+              </div>
+            </div>
+
+            <!-- Pièces jointes -->
+            <p class="files-title">Pièces justificatives</p>
+
+            <div class="file-upload-group">
+
+              <div class="file-upload-item" id="fuCNI">
+                <label for="fileCNI" class="file-label">
+                  <span class="file-icon">🪪</span>
+                  <span class="file-info">
+                    <span class="file-title">Carte d'identité ou livret de famille <span class="req">*</span></span>
+                    <span class="file-sub">Photo recto-verso de la CNI, ou page du livret de famille</span>
+                  </span>
+                  <span class="file-btn">Choisir</span>
+                </label>
+                <input type="file" id="fileCNI" name="Carte identité ou livret de famille" accept=".pdf,.jpg,.jpeg,.png" required>
+                <div class="file-preview" id="prevCNI"></div>
+              </div>
+
+              <div class="file-upload-item" id="fuVaccin">
+                <label for="fileVaccin" class="file-label">
+                  <span class="file-icon">💉</span>
+                  <span class="file-info">
+                    <span class="file-title">Carnet de vaccination <span class="req">*</span></span>
+                    <span class="file-sub">Page des vaccins à jour (DTP obligatoire)</span>
+                  </span>
+                  <span class="file-btn">Choisir</span>
+                </label>
+                <input type="file" id="fileVaccin" name="Carnet de vaccination" accept=".pdf,.jpg,.jpeg,.png" required>
+                <div class="file-preview" id="prevVaccin"></div>
+              </div>
+
+              <div class="file-upload-item" id="fuVacaf" style="display:none">
+                <label for="fileVacaf" class="file-label">
+                  <span class="file-icon">📋</span>
+                  <span class="file-info">
+                    <span class="file-title">Justificatif VACAF / aide CAF <span class="req">*</span></span>
+                    <span class="file-sub">Attestation VACAF, bon de prise en charge ou courrier CAF</span>
+                  </span>
+                  <span class="file-btn">Choisir</span>
+                </label>
+                <input type="file" id="fileVacaf" name="Justificatif VACAF ou CAF" accept=".pdf,.jpg,.jpeg,.png">
+                <div class="file-preview" id="prevVacaf"></div>
+              </div>
+
+            </div>
+
+            <!-- Autorisation photo -->
+            <div class="toggle-group" id="photoToggleGroup" style="margin-top:28px">
+              <div class="toggle-label">
+                <span class="toggle-title">Autorisation photo / vidéo</span>
+                <span class="toggle-sub">J'autorise l'utilisation des photos et vidéos de mon enfant prises durant le séjour, à des fins de communication auprès des familles</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="photoToggle">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+
+            <div class="info-note">
+              <span>📝</span>
+              <p><strong>Fiche sanitaire</strong> — Elle vous sera transmise par email après confirmation de la pré-inscription. Merci de la retourner complétée avant le départ.</p>
+            </div>
+          </div>
+
+          <!-- ══════════ ÉTAPE 5 · Confirmation ══════════ -->
+          <div class="insc-step" id="step-5">
+            <div class="step-head">
+              <span class="step-tag">Étape 5 · Confirmation</span>
+              <h2>Vérification &amp; envoi</h2>
+              <p>Relisez vos informations, cochez la case ci-dessous, puis envoyez votre demande.</p>
+            </div>
+
+            <div id="recapBox" class="recap-box"></div>
+
+            <div class="certification-group">
+              <label class="cert-label">
+                <input type="checkbox" id="certCheck">
+                <span>Je certifie être le / la responsable légal(e) de l'enfant mentionné ci-dessus et autorise sa participation au séjour organisé par <strong>Fun Loisirs Réunion</strong> au Centre Les Hortensias, La Plaine des Palmistes.</span>
+              </label>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full submit-btn" id="submitBtn">
+              Envoyer la demande &nbsp;📬
+            </button>
+            <p class="form-note">Une copie vous sera envoyée par email. Fun Loisirs Réunion vous contactera sous 48 h pour confirmer la place de votre enfant.</p>
+          </div>
+
+          <!-- Navigation entre étapes -->
+          <div class="insc-nav" id="inscNav">
+            <button type="button" class="btn btn-outline" id="btnPrev" style="visibility:hidden">← Précédent</button>
+            <span class="step-counter" id="stepCounter">Étape 1 / 5</span>
+            <button type="button" class="btn btn-primary" id="btnNext">Suivant →</button>
+          </div>
+
+        </form>
+      </div>
+
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <span class="logo-icon">🌸</span>
+        <span class="logo-text">Les Hortensias</span>
+        <p>Centre de vacances à La Plaine des Palmistes, La Réunion. Une association <strong>Fun Loisir</strong>.</p>
+      </div>
+      <div class="footer-links">
+        <h4>Nos séjours</h4>
+        <ul>
+          <li><a href="colonies.html">Colonies de vacances</a></li>
+          <li><a href="classe-volcan-nature.html">Classes Volcans &amp; Nature</a></li>
+          <li><a href="groupes-independants.html">Groupes Indépendants</a></li>
+          <li><a href="erasmus.html">Séjours Erasmus+</a></li>
+        </ul>
+      </div>
+      <div class="footer-contact">
+        <h4>Contact rapide</h4>
+        <p>📞 <a href="tel:0692578195">06 92 57 81 95</a></p>
+        <p>✉️ <a href="mailto:leshortensias97431@gmail.com">leshortensias97431@gmail.com</a></p>
+        <p>📍 41 rue des Mimosas<br />97431 La Plaine des Palmistes</p>
+        <a href="https://wa.me/262692578195" target="_blank" rel="noopener" class="wa-btn">💬 WhatsApp</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>© 2026 Les Hortensias – Centre de Vacances | La Plaine des Palmistes, La Réunion | <a href="mentions-legales.html">Mentions légales</a></p>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+  <script src="inscription.js"></script>
+</body>
+</html>
