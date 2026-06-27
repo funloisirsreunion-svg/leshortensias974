@@ -80,6 +80,23 @@ document.querySelectorAll('.program-tab').forEach(tab => {
   });
 });
 
+// Bloc conditionnel Classe Découverte (page contact)
+const sejourSelect = document.getElementById('sejour');
+const classeBlock  = document.getElementById('classeDecouverteBlock');
+if (sejourSelect && classeBlock) {
+  sejourSelect.addEventListener('change', () => {
+    classeBlock.style.display = sejourSelect.value === 'classe-decouverte' ? 'block' : 'none';
+  });
+}
+
+// Bouton retour en haut
+const backToTop = document.getElementById('backToTop');
+if (backToTop) {
+  window.addEventListener('scroll', () => {
+    backToTop.classList.toggle('visible', window.scrollY > 400);
+  }, { passive: true });
+}
+
 // Formulaire de contact — désactiver le bouton pendant l'envoi (POST vers FormSubmit)
 const contactForm = document.getElementById('contactForm');
 if (contactForm) {

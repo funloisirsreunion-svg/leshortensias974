@@ -55,7 +55,7 @@
       <div class="contact-info">
         <span class="section-tag">Nous contacter</span>
         <h2>Parlons de votre projet</h2>
-        <p>Une question sur nos séjours, une demande de réservation ou un devis ? Contactez-nous par le moyen qui vous convient le mieux. Nous répondons sous 24h.</p>
+        <p>Une question sur nos séjours, une demande de réservation ou un devis ? Contactez-nous par le moyen qui vous convient le mieux.</p>
 
         <div class="contact-cards">
           <a href="tel:0692578195" class="contact-card">
@@ -66,9 +66,9 @@
             <span class="contact-card-icon">💬</span>
             <div><strong>WhatsApp</strong><span>Message rapide</span></div>
           </a>
-          <a href="mailto:leshortensias97431@gmail.com" class="contact-card">
+          <a href="mailto:contact.funloisirsreunion@gmail.com" class="contact-card">
             <span class="contact-card-icon">✉️</span>
-            <div><strong>Email</strong><span>leshortensias97431@gmail.com</span></div>
+            <div><strong>Email</strong><span>contact.funloisirsreunion@gmail.com</span></div>
           </a>
           <div class="contact-card contact-card-addr">
             <span class="contact-card-icon">📍</span>
@@ -79,7 +79,7 @@
 
       <div class="contact-form-wrap">
         <form class="contact-form" id="contactForm"
-          action="https://formsubmit.co/leshortensias97431@gmail.com"
+          action="https://formsubmit.co/contact.funloisirsreunion@gmail.com"
           method="POST">
           <input type="hidden" name="_subject"  value="✉️ Message reçu via le site – Les Hortensias">
           <input type="hidden" name="_template" value="table">
@@ -109,31 +109,31 @@
             <label for="sejour">Objet de la demande</label>
             <select id="sejour" name="Objet de la demande">
               <option value="">-- Choisir --</option>
-              <optgroup label="🏕️ Colonies de vacances (6-14 ans)">
-                <option value="colonies-octobre">Colonie Octobre 2026 — 11 au 22 octobre</option>
-              </optgroup>
-              <optgroup label="🌋 Classes Volcans &amp; Nature">
-                <option value="classes-p1">Classe Volcan / Nature — Période 1</option>
-                <option value="classes-p2">Classe Volcan / Nature — Période 2</option>
-                <option value="classes-p3">Classe Volcan / Nature — Période 3</option>
-                <option value="classes-p4">Classe Volcan / Nature — Période 4</option>
-                <option value="classes-p5">Classe Volcan / Nature — Période 5</option>
-              </optgroup>
-              <optgroup label="🌍 Séjour Erasmus+">
-                <option value="erasmus">Prochain programme Erasmus+</option>
-              </optgroup>
-              <optgroup label="🏨 Groupes Indépendants">
-                <option value="groupes">Hébergement &amp; Restauration groupe</option>
-              </optgroup>
-              <option value="autre">Autre demande</option>
+              <option value="colonie">🏕️ Colonie de vacances</option>
+              <option value="classe-decouverte">🌋 Classe découverte</option>
+              <option value="groupe">🏨 Groupe / Réservation classique</option>
+              <option value="autre">Autre</option>
             </select>
           </div>
+
+          <!-- Bloc conditionnel Classe Découverte -->
+          <div id="classeDecouverteBlock" style="display:none;margin-bottom:20px;">
+            <div class="alert-banner" style="background:var(--beige-fonce);color:var(--brun);border-radius:var(--radius-sm);">
+              <span class="alert-banner-icon">🌋</span>
+              <div>
+                <strong>Pré-inscription Classe Découverte</strong>
+                <p style="margin:6px 0 12px;">Vous souhaitez organiser une classe découverte ? Remplissez notre formulaire dédié afin que nous puissions préparer votre devis et vous recontacter rapidement.</p>
+                <a href="inscription-classe.html" class="btn btn-card" style="display:inline-flex;text-decoration:none;">📝 Remplir le formulaire de pré-inscription</a>
+              </div>
+            </div>
+          </div>
+
           <div class="form-group">
             <label for="message">Message *</label>
             <textarea id="message" name="Message" rows="4" placeholder="Décrivez votre projet, vos dates, le nombre de participants..." required></textarea>
           </div>
           <button type="submit" class="btn btn-primary btn-full">Envoyer le message</button>
-          <p class="form-note">Nous vous répondons sous 24h. Vous pouvez aussi nous contacter directement par téléphone ou WhatsApp.</p>
+          <p class="form-note">Vous pouvez aussi nous contacter directement par téléphone ou WhatsApp.</p>
         </form>
       </div>
 
@@ -194,7 +194,7 @@
       <div class="footer-contact">
         <h4>Contact rapide</h4>
         <p>📞 <a href="tel:0692578195">06 92 57 81 95</a></p>
-        <p>✉️ <a href="mailto:leshortensias97431@gmail.com">leshortensias97431@gmail.com</a></p>
+        <p>✉️ <a href="mailto:contact.funloisirsreunion@gmail.com">contact.funloisirsreunion@gmail.com</a></p>
         <p>📍 41 rue des Mimosas<br />97431 La Plaine des Palmistes</p>
         <a href="https://wa.me/262692578195" target="_blank" rel="noopener" class="wa-btn">💬 WhatsApp</a>
       </div>

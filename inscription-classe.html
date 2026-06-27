@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pré-inscription Classe Découverte – Les Hortensias, La Réunion</title>
+  <meta name="description" content="Formulaire de pré-inscription pour organiser une Classe Découverte au Centre Les Hortensias, La Plaine des Palmistes, La Réunion." />
+  <link rel="canonical" href="https://leshortensias974.vercel.app/inscription-classe.html" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌸</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .insc-classe-wrap { max-width:760px; margin:0 auto; }
+    .insc-classe-form { background:var(--blanc); border-radius:var(--radius); box-shadow:var(--ombre); padding:48px; }
+    @media(max-width:600px){ .insc-classe-form { padding:24px; } }
+    .form-section { margin-bottom:36px; padding-bottom:36px; border-bottom:1px solid var(--beige-fonce); }
+    .form-section:last-of-type { border-bottom:none; margin-bottom:0; padding-bottom:0; }
+    .form-section-title {
+      font-family:'Playfair Display',serif; font-size:1.15rem; color:var(--vert-fonce);
+      margin-bottom:20px; display:flex; align-items:center; gap:10px;
+    }
+    .checkboxes-group { display:flex; flex-wrap:wrap; gap:12px; margin-top:6px; }
+    .checkbox-chip {
+      display:flex; align-items:center; gap:8px; background:var(--gris-clair);
+      border:2px solid var(--beige-fonce); border-radius:var(--radius-sm);
+      padding:10px 16px; cursor:pointer; transition:var(--transition); font-size:.9rem; font-weight:600;
+    }
+    .checkbox-chip input[type=checkbox] { accent-color:var(--vert-fonce); width:16px; height:16px; }
+    .checkbox-chip:has(input:checked) { background:var(--beige-fonce); border-color:var(--vert-fonce); color:var(--vert-fonce); }
+    .recap-preview {
+      background:var(--gris-clair); border-radius:var(--radius-sm); padding:24px;
+      margin-bottom:24px; font-size:.92rem; line-height:1.7; display:none;
+    }
+    .recap-preview.visible { display:block; }
+    .recap-preview strong { color:var(--vert-fonce); }
+    .cert-group { display:flex; align-items:flex-start; gap:12px; margin-bottom:24px; }
+    .cert-group input[type=checkbox] { margin-top:3px; accent-color:var(--vert-fonce); width:18px; height:18px; flex-shrink:0; }
+    .cert-group label { font-size:.92rem; color:var(--texte); line-height:1.5; }
+    .submit-note { text-align:center; margin-top:14px; font-size:.85rem; color:var(--texte-clair); }
+  </style>
+</head>
+<body>
+
+  <nav id="navbar">
+    <div class="nav-container">
+      <a href="index.html" class="nav-logo"><span class="logo-icon">🌸</span><span class="logo-text">Les Hortensias</span></a>
+      <button class="nav-toggle" id="navToggle" aria-label="Menu"><span></span><span></span><span></span></button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="index.html">Accueil</a></li>
+        <li class="has-dropdown">
+          <a href="#" class="dropdown-trigger">Nos séjours <span class="dropdown-arrow">▾</span></a>
+          <ul class="dropdown-menu">
+            <li><a href="colonies.html">🏕️ Colonies (6-14 ans)</a></li>
+            <li><a href="classe-volcan-nature.html">🌋 Classes Volcans &amp; Nature</a></li>
+            <li><a href="groupes-independants.html">🏨 Groupes Indépendants</a></li>
+            <li><a href="erasmus.html">🌍 Séjours Erasmus+</a></li>
+            <li class="dropdown-sep"></li>
+            <li><a href="inscription.html" class="dropdown-insc">📝 Demande d'inscription</a></li>
+          </ul>
+        </li>
+        <li><a href="contact.html">Contact</a></li>
+        <li><a href="tel:0692578195" class="nav-cta">📞 06 92 57 81 95</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <div class="page-hero" style="background-image:linear-gradient(135deg,rgba(45,90,39,.85) 0%,rgba(74,124,89,.7) 100%),url('images/volcan.jpg');">
+    <div class="page-hero-content">
+      <span class="hero-badge">Classes de découverte</span>
+      <h1>Pré-inscription Classe Découverte</h1>
+      <p>Remplissez ce formulaire pour que nous préparions votre devis et vous recontactions rapidement</p>
+    </div>
+  </div>
+
+  <nav class="breadcrumb">
+    <div class="container breadcrumb-inner">
+      <a href="index.html">Accueil</a>
+      <span class="breadcrumb-sep">›</span>
+      <a href="classe-volcan-nature.html">Classes Volcans &amp; Nature</a>
+      <span class="breadcrumb-sep">›</span>
+      <span>Pré-inscription</span>
+    </div>
+  </nav>
+
+  <section class="content-section bg-grey">
+    <div class="container insc-classe-wrap">
+
+      <div class="alert-banner fade-in" style="margin-bottom:32px;">
+        <span class="alert-banner-icon">ℹ️</span>
+        <div>
+          <strong>Demande de pré-inscription</strong>
+          Ce formulaire constitue une demande, pas une inscription définitive. Fun Loisirs Réunion vous contactera pour confirmer les disponibilités, affiner le projet pédagogique et vous transmettre un devis personnalisé.
+        </div>
+      </div>
+
+      <div class="insc-classe-form fade-in">
+        <form
+          id="classeForm"
+          action="https://formsubmit.co/contact.funloisirsreunion@gmail.com"
+          method="POST"
+          novalidate
+        >
+          <!-- Config FormSubmit -->
+          <input type="hidden" name="_subject"  value="🌋 Pré-inscription Classe Découverte – Les Hortensias">
+          <input type="hidden" name="_template" value="table">
+          <input type="hidden" name="_next"     value="https://leshortensias974.vercel.app/contact-confirmee.html">
+          <input type="hidden" name="_captcha"  value="false">
+          <input type="text"   name="_honey"    style="display:none" tabindex="-1" autocomplete="off">
+          <!-- Champ caché pour les niveaux sélectionnés -->
+          <input type="hidden" id="niveauxHidden" name="Niveaux des élèves" value="">
+
+          <!-- ── 1. Établissement ── -->
+          <div class="form-section">
+            <h3 class="form-section-title">🏫 Informations sur l'établissement</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="nomEcole">Nom de l'école <span style="color:#c0392b;">*</span></label>
+                <input type="text" id="nomEcole" name="Nom de l'école" required placeholder="ex : École primaire Jules Reydellet" />
+              </div>
+              <div class="form-group">
+                <label for="commune">Commune <span style="color:#c0392b;">*</span></label>
+                <input type="text" id="commune" name="Commune" required placeholder="ex : Saint-Denis" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="refNomPrenom">Nom et prénom du référent <span style="color:#c0392b;">*</span></label>
+                <input type="text" id="refNomPrenom" name="Référent – Nom et prénom" required placeholder="ex : Marie Dupont" autocomplete="name" />
+              </div>
+              <div class="form-group">
+                <label for="refFonction">Fonction <span style="color:#c0392b;">*</span></label>
+                <select id="refFonction" name="Référent – Fonction" required>
+                  <option value="">— Sélectionnez —</option>
+                  <option>Directeur(trice)</option>
+                  <option>Enseignant(e)</option>
+                  <option>Autre</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="refTel">Téléphone <span style="color:#c0392b;">*</span></label>
+                <input type="tel" id="refTel" name="Référent – Téléphone" required placeholder="0692 xx xx xx" autocomplete="tel" />
+              </div>
+              <div class="form-group">
+                <label for="refEmail">Adresse e-mail <span style="color:#c0392b;">*</span></label>
+                <input type="email" id="refEmail" name="Référent – Email" required placeholder="votre@email.com" autocomplete="email" />
+              </div>
+            </div>
+          </div>
+
+          <!-- ── 2. Niveaux des élèves ── -->
+          <div class="form-section">
+            <h3 class="form-section-title">📚 Niveau des élèves</h3>
+            <p style="color:var(--texte-clair);font-size:.92rem;margin-bottom:14px;">Plusieurs niveaux peuvent être sélectionnés simultanément.</p>
+            <div class="checkboxes-group" id="niveauxGroup">
+              <label class="checkbox-chip"><input type="checkbox" value="Maternelle"> Maternelle</label>
+              <label class="checkbox-chip"><input type="checkbox" value="CP"> CP</label>
+              <label class="checkbox-chip"><input type="checkbox" value="CE1"> CE1</label>
+              <label class="checkbox-chip"><input type="checkbox" value="CE2"> CE2</label>
+              <label class="checkbox-chip"><input type="checkbox" value="CM1"> CM1</label>
+              <label class="checkbox-chip"><input type="checkbox" value="CM2"> CM2</label>
+              <label class="checkbox-chip"><input type="checkbox" value="Autre"> Autre</label>
+            </div>
+          </div>
+
+          <!-- ── 3. Effectif ── -->
+          <div class="form-section">
+            <h3 class="form-section-title">👥 Effectif</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="nbEleves">Nombre d'élèves <span style="color:#c0392b;">*</span></label>
+                <input type="number" id="nbEleves" name="Nombre d'élèves" required min="1" max="200" placeholder="ex : 25" />
+              </div>
+              <div class="form-group">
+                <label for="nbAccomp">Nombre d'accompagnateurs</label>
+                <input type="number" id="nbAccomp" name="Nombre d'accompagnateurs" min="0" max="20" placeholder="ex : 3" />
+              </div>
+            </div>
+          </div>
+
+          <!-- ── 4. Projet pédagogique ── -->
+          <div class="form-section">
+            <h3 class="form-section-title">🎓 Projet pédagogique</h3>
+            <div class="form-group">
+              <label for="projetPeda">Décrivez votre projet ou vos attentes</label>
+              <textarea id="projetPeda" name="Projet pédagogique" rows="5" placeholder="Décrivez vos objectifs pédagogiques, les thèmes souhaités (volcan, nature, biodiversité…), vos contraintes ou toute information utile pour personnaliser votre séjour."></textarea>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="duree">Durée souhaitée</label>
+                <select id="duree" name="Durée souhaitée">
+                  <option value="">— À définir —</option>
+                  <option value="3 jours">3 jours</option>
+                  <option value="4 jours">4 jours</option>
+                  <option value="5 jours">5 jours</option>
+                  <option value="À discuter">À discuter</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="periode">Période envisagée</label>
+                <input type="text" id="periode" name="Période envisagée" placeholder="ex : Mars 2027 ou Période 2" />
+              </div>
+            </div>
+          </div>
+
+          <!-- ── 5. Validation ── -->
+          <div class="form-section" style="border-bottom:none;padding-bottom:0;margin-bottom:0;">
+            <h3 class="form-section-title">✅ Validation</h3>
+
+            <div id="recapPreview" class="recap-preview"></div>
+
+            <div class="cert-group">
+              <input type="checkbox" id="certCheck" required />
+              <label for="certCheck">Je certifie que les informations renseignées sont exactes et autorise Fun Loisirs Réunion à recontacter l'établissement pour donner suite à cette demande.</label>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-full" id="submitBtn">Envoyer la demande de pré-inscription 📬</button>
+            <p class="submit-note">Fun Loisirs Réunion vous contactera pour étudier votre projet, confirmer les disponibilités et vous transmettre un devis personnalisé.</p>
+          </div>
+
+        </form>
+      </div>
+
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <span class="logo-icon">🌸</span><span class="logo-text">Les Hortensias</span>
+        <p>Centre de vacances à La Plaine des Palmistes, La Réunion. Géré par l'association <strong>Fun Loisirs Réunion</strong>.</p>
+      </div>
+      <div class="footer-links">
+        <h4>Nos séjours</h4>
+        <ul>
+          <li><a href="colonies.html">Colonies de vacances</a></li>
+          <li><a href="classe-volcan-nature.html">Classes Volcans &amp; Nature</a></li>
+          <li><a href="groupes-independants.html">Groupes Indépendants</a></li>
+          <li><a href="erasmus.html">Séjours Erasmus+</a></li>
+        </ul>
+      </div>
+      <div class="footer-contact">
+        <h4>Contact rapide</h4>
+        <p>📞 <a href="tel:0692578195">06 92 57 81 95</a></p>
+        <p>✉️ <a href="mailto:contact.funloisirsreunion@gmail.com">contact.funloisirsreunion@gmail.com</a></p>
+        <p>📍 41 rue des Mimosas<br />97431 La Plaine des Palmistes</p>
+        <a href="https://wa.me/262692578195" target="_blank" rel="noopener" class="wa-btn">💬 WhatsApp</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>© 2026 Les Hortensias – Centre de Vacances | La Plaine des Palmistes, La Réunion | <a href="mentions-legales.html">Mentions légales</a></p>
+    </div>
+  </footer>
+
+  <a href="#" class="back-to-top" id="backToTop" aria-label="Retour en haut de page">↑</a>
+
+  <script src="script.js"></script>
+  <script>
+    // Niveaux — champs cachés mis à jour en temps réel
+    const niveauxGroup  = document.getElementById('niveauxGroup');
+    const niveauxHidden = document.getElementById('niveauxHidden');
+    niveauxGroup.addEventListener('change', updateNiveaux);
+
+    function updateNiveaux() {
+      const checked = [...niveauxGroup.querySelectorAll('input:checked')].map(c => c.value);
+      niveauxHidden.value = checked.length ? checked.join(', ') : '';
+    }
+
+    // Récapitulatif dynamique avant envoi
+    const classeForm = document.getElementById('classeForm');
+    classeForm.addEventListener('change', buildRecap);
+    classeForm.addEventListener('input',  buildRecap);
+
+    function buildRecap() {
+      const nomEcole    = document.getElementById('nomEcole').value.trim();
+      const commune     = document.getElementById('commune').value.trim();
+      const refNom      = document.getElementById('refNomPrenom').value.trim();
+      const refFonction = document.getElementById('refFonction').value;
+      const refTel      = document.getElementById('refTel').value.trim();
+      const refEmail    = document.getElementById('refEmail').value.trim();
+      const niveaux     = niveauxHidden.value;
+      const nbEleves    = document.getElementById('nbEleves').value;
+      const nbAccomp    = document.getElementById('nbAccomp').value;
+      const duree       = document.getElementById('duree').value;
+      const periode     = document.getElementById('periode').value.trim();
+      const projet      = document.getElementById('projetPeda').value.trim();
+
+      if (!nomEcole && !refNom) { document.getElementById('recapPreview').classList.remove('visible'); return; }
+
+      let html = '<strong>Récapitulatif de votre demande</strong><br /><br />';
+      if (nomEcole)    html += `<strong>École :</strong> ${nomEcole}${commune ? ` – ${commune}` : ''}<br />`;
+      if (refNom)      html += `<strong>Référent :</strong> ${refNom}${refFonction ? ` (${refFonction})` : ''}<br />`;
+      if (refTel)      html += `<strong>Téléphone :</strong> ${refTel}<br />`;
+      if (refEmail)    html += `<strong>Email :</strong> ${refEmail}<br />`;
+      if (niveaux)     html += `<strong>Niveaux :</strong> ${niveaux}<br />`;
+      if (nbEleves)    html += `<strong>Élèves :</strong> ${nbEleves}${nbAccomp ? ` · ${nbAccomp} accompagnateur(s)` : ''}<br />`;
+      if (duree)       html += `<strong>Durée :</strong> ${duree}<br />`;
+      if (periode)     html += `<strong>Période :</strong> ${periode}<br />`;
+      if (projet)      html += `<strong>Projet :</strong> ${projet}`;
+
+      const box = document.getElementById('recapPreview');
+      box.innerHTML = html;
+      box.classList.add('visible');
+    }
+
+    // Validation avant envoi
+    document.getElementById('submitBtn').addEventListener('click', function(e) {
+      const form     = document.getElementById('classeForm');
+      const certCheck = document.getElementById('certCheck');
+
+      if (!form.checkValidity()) {
+        form.reportValidity();
+        e.preventDefault();
+        return;
+      }
+      if (!certCheck.checked) {
+        alert('Veuillez cocher la case de certification avant d\'envoyer.');
+        e.preventDefault();
+        return;
+      }
+
+      updateNiveaux();
+      this.textContent = 'Envoi en cours…';
+      this.disabled = true;
+    });
+  </script>
+</body>
+</html>
