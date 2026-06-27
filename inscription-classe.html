@@ -39,6 +39,48 @@
     .cert-group input[type=checkbox] { margin-top:3px; accent-color:var(--vert-fonce); width:18px; height:18px; flex-shrink:0; }
     .cert-group label { font-size:.92rem; color:var(--texte); line-height:1.5; }
     .submit-note { text-align:center; margin-top:14px; font-size:.85rem; color:var(--texte-clair); }
+
+    /* Programme souhaité — boutons radio */
+    .prog-radio-group { display:flex; gap:16px; margin-top:6px; flex-wrap:wrap; }
+    .prog-radio-card { flex:1; min-width:160px; cursor:pointer; }
+    .prog-radio-card input[type=radio] { display:none; }
+    .prog-radio-inner {
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:10px; padding:24px 16px; border-radius:var(--radius);
+      border:2px solid var(--beige-fonce); background:var(--gris-clair);
+      transition:var(--transition); text-align:center;
+    }
+    .prog-radio-icon { font-size:2.2rem; }
+    .prog-radio-label { font-weight:700; font-size:.97rem; color:var(--texte); }
+    .prog-radio-card input:checked + .prog-radio-inner {
+      border-color:var(--vert-fonce); background:var(--beige-fonce); box-shadow:0 0 0 4px rgba(45,90,39,.1);
+    }
+    .prog-radio-card input:checked + .prog-radio-inner .prog-radio-label { color:var(--vert-fonce); }
+    .prog-radio-card:hover .prog-radio-inner { border-color:var(--vert-clair); }
+
+    /* Estimateur de coût */
+    .estimateur-card {
+      background:linear-gradient(135deg,var(--vert-fonce),#3d7a4d); border-radius:var(--radius);
+      padding:32px 36px; margin:0 0 32px; color:var(--blanc);
+      box-shadow:0 8px 32px rgba(45,90,39,.3); display:none;
+      animation:fadeSlideIn .4s ease;
+    }
+    @keyframes fadeSlideIn { from { opacity:0; transform:translateY(-10px); } to { opacity:1; transform:translateY(0); } }
+    .estimateur-header { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+    .estimateur-icon { font-size:1.8rem; }
+    .estimateur-title { font-family:'Playfair Display',serif; font-size:1.1rem; font-weight:700; opacity:.9; }
+    .estimateur-subtitle { font-size:.82rem; opacity:.7; margin-top:2px; }
+    .estimateur-montant {
+      font-family:'Playfair Display',serif; font-size:3rem; font-weight:700;
+      color:var(--or-clair); line-height:1; margin-bottom:4px;
+    }
+    .estimateur-ttc { font-size:.85rem; opacity:.75; margin-bottom:20px; }
+    .est-detail { display:flex; flex-direction:column; gap:8px; border-top:1px solid rgba(255,255,255,.2); padding-top:16px; margin-bottom:16px; }
+    .est-line { display:flex; justify-content:space-between; align-items:center; font-size:.88rem; }
+    .est-line span:first-child { opacity:.85; }
+    .est-line span:last-child { font-weight:700; }
+    .est-gratuit { color:var(--or-clair); }
+    .estimateur-note { font-size:.78rem; opacity:.65; line-height:1.5; border-top:1px solid rgba(255,255,255,.15); padding-top:12px; }
   </style>
 </head>
 <body>
@@ -195,32 +237,70 @@
             </div>
           </div>
 
-          <!-- ── 4. Projet pédagogique ── -->
+          <!-- ── 4. Programme souhaité ── -->
           <div class="form-section">
-            <h3 class="form-section-title">🎓 Projet pédagogique</h3>
-            <div class="form-group">
-              <label for="projetPeda">Décrivez votre projet ou vos attentes</label>
-              <textarea id="projetPeda" name="Projet pédagogique" rows="5" placeholder="Décrivez vos objectifs pédagogiques, les thèmes souhaités (volcan, nature, biodiversité…), vos contraintes ou toute information utile pour personnaliser votre séjour."></textarea>
+            <h3 class="form-section-title">🎓 Programme souhaité <span style="color:#c0392b;font-size:.85rem;">*</span></h3>
+            <div class="prog-radio-group">
+              <label class="prog-radio-card">
+                <input type="radio" name="Programme souhaité" id="progVolcan" value="Classe Volcan" required>
+                <span class="prog-radio-inner">
+                  <span class="prog-radio-icon">🌋</span>
+                  <span class="prog-radio-label">Classe Volcan</span>
+                </span>
+              </label>
+              <label class="prog-radio-card">
+                <input type="radio" name="Programme souhaité" id="progNature" value="Classe Nature">
+                <span class="prog-radio-inner">
+                  <span class="prog-radio-icon">🌿</span>
+                  <span class="prog-radio-label">Classe Nature</span>
+                </span>
+              </label>
             </div>
+          </div>
+
+          <!-- ── 5. Dates ── -->
+          <div class="form-section">
+            <h3 class="form-section-title">📅 Dates souhaitées</h3>
             <div class="form-row">
               <div class="form-group">
                 <label for="duree">Durée souhaitée</label>
                 <select id="duree" name="Durée souhaitée">
-                  <option value="">— À définir —</option>
+                  <option value="">— Choisir —</option>
                   <option value="3 jours">3 jours</option>
                   <option value="4 jours">4 jours</option>
                   <option value="5 jours">5 jours</option>
-                  <option value="À discuter">À discuter</option>
                 </select>
               </div>
               <div class="form-group">
                 <label for="periode">Période envisagée</label>
-                <input type="text" id="periode" name="Période envisagée" placeholder="ex : Mars 2027 ou Période 2" />
+                <select id="periode" name="Période envisagée">
+                  <option value="">— Choisir —</option>
+                  <option value="Période 1">Période 1</option>
+                  <option value="Période 2">Période 2</option>
+                  <option value="Période 3">Période 3</option>
+                  <option value="Période 4">Période 4</option>
+                  <option value="Période 5">Période 5</option>
+                </select>
               </div>
             </div>
           </div>
 
-          <!-- ── 5. Validation ── -->
+          <!-- ── Estimateur de coût ── -->
+          <div class="estimateur-card" id="estimateurCard">
+            <div class="estimateur-header">
+              <span class="estimateur-icon">📊</span>
+              <div>
+                <div class="estimateur-title">Estimation du coût du séjour</div>
+                <div class="estimateur-subtitle" id="estimateurSubtitle"></div>
+              </div>
+            </div>
+            <div class="estimateur-montant" id="estimateurMontant">—</div>
+            <div class="estimateur-ttc">€ TTC</div>
+            <div class="est-detail" id="estimateurDetail"></div>
+            <p class="estimateur-note">Cette estimation est donnée à titre indicatif. Un devis personnalisé vous sera transmis après étude de votre demande.</p>
+          </div>
+
+          <!-- ── 6. Validation ── -->
           <div class="form-section" style="border-bottom:none;padding-bottom:0;margin-bottom:0;">
             <h3 class="form-section-title">✅ Validation</h3>
 
@@ -273,20 +353,70 @@
 
   <script src="script.js"></script>
   <script>
-    // Niveaux — champs cachés mis à jour en temps réel
+    // ── Niveaux ──────────────────────────────────────────
     const niveauxGroup  = document.getElementById('niveauxGroup');
     const niveauxHidden = document.getElementById('niveauxHidden');
     niveauxGroup.addEventListener('change', updateNiveaux);
-
     function updateNiveaux() {
       const checked = [...niveauxGroup.querySelectorAll('input:checked')].map(c => c.value);
       niveauxHidden.value = checked.length ? checked.join(', ') : '';
     }
 
-    // Récapitulatif dynamique avant envoi
+    // ── Grille tarifaire ─────────────────────────────────
+    const TARIFS = {
+      'Classe Volcan': {
+        '3 jours': { eleve: 162,  accomp: 48.60 },
+        '4 jours': { eleve: 208,  accomp: 83.20 },
+        '5 jours': { eleve: 250,  accomp: 125   }
+      },
+      'Classe Nature': {
+        '3 jours': { eleve: 156,  accomp: 46.80 },
+        '4 jours': { eleve: 200,  accomp: 80    },
+        '5 jours': { eleve: 240,  accomp: 120   }
+      }
+    };
+
+    function fmt(n) {
+      return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+    }
+
+    // ── Estimateur ────────────────────────────────────────
+    function calculateEstimate() {
+      const progEl  = document.querySelector('input[name="Programme souhaité"]:checked');
+      const duree   = document.getElementById('duree').value;
+      const nbElev  = parseInt(document.getElementById('nbEleves').value)  || 0;
+      const nbProfs = parseInt(document.getElementById('nbProfs').value)   || 0;
+      const nbAcc   = parseInt(document.getElementById('nbAccomp').value)  || 0;
+      const card    = document.getElementById('estimateurCard');
+
+      if (!progEl || !duree || !nbElev) { card.style.display = 'none'; return; }
+
+      const tarif = TARIFS[progEl.value] && TARIFS[progEl.value][duree];
+      if (!tarif) { card.style.display = 'none'; return; }
+
+      const totalElev = nbElev * tarif.eleve;
+      const totalAcc  = nbAcc  * tarif.accomp;
+      const total     = totalElev + totalAcc;
+
+      document.getElementById('estimateurMontant').textContent =
+        total.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      document.getElementById('estimateurSubtitle').textContent =
+        `${progEl.value} · ${duree}`;
+
+      let detail = `<div class="est-line"><span>${nbElev} élève(s) × ${fmt(tarif.eleve)}</span><span>${fmt(totalElev)}</span></div>`;
+      if (nbProfs > 0)
+        detail += `<div class="est-line"><span>${nbProfs} professeur(s)</span><span class="est-gratuit">Gratuit ✓</span></div>`;
+      if (nbAcc > 0)
+        detail += `<div class="est-line"><span>${nbAcc} accompagnateur(s) × ${fmt(tarif.accomp)}</span><span>${fmt(totalAcc)}</span></div>`;
+
+      document.getElementById('estimateurDetail').innerHTML = detail;
+      card.style.display = 'block';
+    }
+
+    // ── Récapitulatif ────────────────────────────────────
     const classeForm = document.getElementById('classeForm');
-    classeForm.addEventListener('change', buildRecap);
-    classeForm.addEventListener('input',  buildRecap);
+    classeForm.addEventListener('change', () => { updateNiveaux(); buildRecap(); calculateEstimate(); });
+    classeForm.addEventListener('input',  () => { buildRecap(); calculateEstimate(); });
 
     function buildRecap() {
       const nomEcole    = document.getElementById('nomEcole').value.trim();
@@ -301,41 +431,47 @@
       const nbEleves    = document.getElementById('nbEleves').value;
       const nbProfs     = document.getElementById('nbProfs').value;
       const nbAccomp    = document.getElementById('nbAccomp').value;
+      const progEl      = document.querySelector('input[name="Programme souhaité"]:checked');
       const duree       = document.getElementById('duree').value;
-      const periode     = document.getElementById('periode').value.trim();
-      const projet      = document.getElementById('projetPeda').value.trim();
+      const periode     = document.getElementById('periode').value;
 
       if (!nomEcole && !refNom) { document.getElementById('recapPreview').classList.remove('visible'); return; }
 
       const refIdentite = [refPrenom, refNom].filter(Boolean).join(' ');
 
       let html = '<strong>Récapitulatif de votre demande de devis</strong><br /><br />';
-      if (nomEcole)    html += `<strong>École :</strong> ${nomEcole}${commune ? ` – ${commune}` : ''}<br />`;
-      if (refIdentite) html += `<strong>Référent :</strong> ${refIdentite}${refFonction ? ` (${refFonction})` : ''}<br />`;
-      if (refTel)      html += `<strong>Téléphone :</strong> ${refTel}<br />`;
-      if (refEmail)    html += `<strong>Email :</strong> ${refEmail}<br />`;
-      if (niveaux)     html += `<strong>Niveaux :</strong> ${niveaux}<br />`;
-      if (nbClasses)   html += `<strong>Nombre de classes :</strong> ${nbClasses}<br />`;
+      if (nomEcole)       html += `<strong>École :</strong> ${nomEcole}${commune ? ` – ${commune}` : ''}<br />`;
+      if (refIdentite)    html += `<strong>Référent :</strong> ${refIdentite}${refFonction ? ` (${refFonction})` : ''}<br />`;
+      if (refTel)         html += `<strong>Téléphone :</strong> ${refTel}<br />`;
+      if (refEmail)       html += `<strong>Email :</strong> ${refEmail}<br />`;
+      if (niveaux)        html += `<strong>Niveaux :</strong> ${niveaux}<br />`;
+      if (progEl)         html += `<strong>Programme :</strong> ${progEl.value}<br />`;
+      if (nbClasses)      html += `<strong>Nombre de classes :</strong> ${nbClasses}<br />`;
       if (nbEleves) {
         let eff = `${nbEleves} élève(s)`;
         if (nbProfs)  eff += ` · ${nbProfs} prof(s)`;
         if (nbAccomp) eff += ` · ${nbAccomp} accompagnateur(s)`;
         html += `<strong>Effectif :</strong> ${eff}<br />`;
       }
-      if (duree)       html += `<strong>Durée :</strong> ${duree}<br />`;
-      if (periode)     html += `<strong>Période :</strong> ${periode}<br />`;
-      if (projet)      html += `<strong>Projet :</strong> ${projet}`;
+      if (duree)          html += `<strong>Durée :</strong> ${duree}<br />`;
+      if (periode)        html += `<strong>Période :</strong> ${periode}<br />`;
 
       const box = document.getElementById('recapPreview');
       box.innerHTML = html;
       box.classList.add('visible');
     }
 
-    // Validation avant envoi
+    // ── Validation et envoi ───────────────────────────────
     document.getElementById('submitBtn').addEventListener('click', function(e) {
-      const form     = document.getElementById('classeForm');
+      const form      = document.getElementById('classeForm');
       const certCheck = document.getElementById('certCheck');
+      const progEl    = document.querySelector('input[name="Programme souhaité"]:checked');
 
+      if (!progEl) {
+        alert('Veuillez sélectionner un programme (Classe Volcan ou Classe Nature).');
+        e.preventDefault();
+        return;
+      }
       if (!form.checkValidity()) {
         form.reportValidity();
         e.preventDefault();
