@@ -47,14 +47,6 @@ const COLONIES = [
   const enfantDdn    = $('enfantDdn');
   const ageCalc      = $('ageCalc');
   const valAge       = $('valAge');
-  const valCaf       = $('valCaf');
-  const valPhoto     = $('valPhoto');
-  const cafToggle    = $('cafToggle');
-  const cafFields    = $('cafFields');
-  const cafNumero    = $('cafNumero');
-  const fuVacaf      = $('fuVacaf');
-  const fileVacaf    = $('fileVacaf');
-  const photoToggle  = $('photoToggle');
   const recapBox     = $('recapBox');
   const certCheck    = $('certCheck');
 
@@ -94,43 +86,6 @@ const COLONIES = [
     const texte = age + ' an' + (age > 1 ? 's' : '') + ' aujourd\'hui';
     ageCalc.textContent = texte;
     valAge.value = texte;
-  });
-
-  // ── Toggle CAF ────────────────────────────────────────────
-  cafToggle.addEventListener('change', () => {
-    const on = cafToggle.checked;
-    valCaf.value = on ? 'Oui' : 'Non';
-    cafFields.style.display   = on ? 'block' : 'none';
-    fuVacaf.style.display     = on ? 'block' : 'none';
-    cafNumero.required        = on;
-    fileVacaf.required        = on;
-    $('cafToggleGroup').classList.toggle('is-on', on);
-    if (!on) cafNumero.value = '';
-  });
-
-  // ── Toggle photo ──────────────────────────────────────────
-  photoToggle.addEventListener('change', () => {
-    valPhoto.value = photoToggle.checked ? 'Oui — accordée' : 'Non — refusée';
-    $('photoToggleGroup').classList.toggle('is-on', photoToggle.checked);
-  });
-
-  // ── Aperçu des fichiers ───────────────────────────────────
-  [['fileCNI','prevCNI'], ['fileVaccin','prevVaccin'], ['fileVacaf','prevVacaf']].forEach(([inId, prevId]) => {
-    const inp  = $(inId);
-    const prev = $(prevId);
-    if (!inp || !prev) return;
-    inp.addEventListener('change', () => {
-      const f = inp.files[0];
-      const item = inp.closest('.file-upload-item');
-      if (f) {
-        const ko = (f.size / 1024).toFixed(0);
-        prev.innerHTML = `<span class="file-chosen">✅ ${f.name} (${ko} ko)</span>`;
-        item.classList.add('has-file');
-      } else {
-        prev.innerHTML = '';
-        item.classList.remove('has-file');
-      }
-    });
   });
 
   // ── Validation d'une étape ────────────────────────────────
@@ -193,7 +148,6 @@ const COLONIES = [
   // ── Génération du récapitulatif ───────────────────────────
   function genRecap() {
     const c   = COLONIES.find(x => x.id === colonieSelect.value);
-    const cafOn = cafToggle.checked;
     const v   = id => $(id) ? $(id).value || '—' : '—';
     const sex = (document.querySelector('input[name="Sexe"]:checked') || {}).value || '—';
 
@@ -223,12 +177,8 @@ const COLONIES = [
         ${r('Email', v('respEmail'))}
       </div>
       <div class="recap-section">
-        <h4>📎 Documents</h4>
-        ${r('Aide CAF / VACAF', cafOn ? 'Oui — N° ' + (cafNumero.value || '—') : 'Non')}
-        ${r('Autorisation photo', photoToggle.checked ? 'Accordée ✅' : 'Refusée ❌')}
-        ${r('Carte d\'identité', ($('fileCNI').files[0] || {}).name || '—')}
-        ${r('Carnet de vaccination', ($('fileVaccin').files[0] || {}).name || '—')}
-        ${cafOn ? r('Justificatif VACAF', ($('fileVacaf').files[0] || {}).name || '—') : ''}
+        <h4>🔒 Documents</h4>
+        ${r('Transmission', 'Après confirmation de la place')}
       </div>`;
   }
 

@@ -64,7 +64,7 @@
         <span class="alert-banner-icon">ℹ️</span>
         <div>
           <strong>Demande de pré-inscription</strong>
-          L'envoi de ce formulaire constitue une demande, pas une inscription définitive. Fun Loisirs Réunion vous contactera pour confirmer la place de votre enfant après vérification des pièces justificatives.
+          L'envoi de ce formulaire constitue une demande, pas une inscription définitive. Fun Loisirs Réunion vous contactera pour confirmer la disponibilité et vous indiquera ensuite comment transmettre les documents nécessaires.
         </div>
       </div>
 
@@ -89,7 +89,7 @@
             </div>
             <div class="prog-step" data-step="4">
               <div class="prog-dot"><span class="dot-num">4</span></div>
-              <span class="prog-label">Documents</span>
+              <span class="prog-label">Suite</span>
             </div>
             <div class="prog-step" data-step="5">
               <div class="prog-dot"><span class="dot-num">5</span></div>
@@ -105,20 +105,17 @@
           id="inscriptionForm"
           action="https://formsubmit.co/contact.funloisirsreunion@gmail.com"
           method="POST"
-          enctype="multipart/form-data"
           novalidate
         >
           <!-- Config FormSubmit -->
           <input type="hidden" name="_subject"  value="🏕️ Nouvelle demande d'inscription – Les Hortensias">
           <input type="hidden" name="_template" value="table">
           <input type="hidden" name="_next"     value="https://leshortensias974.vercel.app/inscription-confirmee.html">
-          <input type="hidden" name="_captcha"  value="false">
+          <input type="hidden" name="_captcha"  value="true">
           <input type="text"   name="_honey"    style="display:none" tabindex="-1" autocomplete="off">
 
-          <!-- Champs cachés mis à jour par le JS -->
+          <!-- Champ calculé automatiquement par le JS -->
           <input type="hidden" id="valAge"   name="Âge au moment du séjour" value="">
-          <input type="hidden" id="valCaf"   name="Aide CAF / VACAF"        value="Non">
-          <input type="hidden" id="valPhoto" name="Autorisation photo/vidéo" value="Non">
 
           <!-- ══════════ ÉTAPE 1 · Séjour ══════════ -->
           <div class="insc-step active" id="step-1">
@@ -236,95 +233,25 @@
             </div>
           </div>
 
-          <!-- ══════════ ÉTAPE 4 · Documents ══════════ -->
+          <!-- ══════════ ÉTAPE 4 · Suite de la demande ══════════ -->
           <div class="insc-step" id="step-4">
             <div class="step-head">
-              <span class="step-tag">Étape 4 · Documents</span>
-              <h2>Documents &amp; compléments</h2>
-              <p>Joignez vos fichiers depuis votre téléphone ou ordinateur · PDF, JPG, PNG · 5 Mo max par fichier</p>
-            </div>
-
-            <!-- Aide CAF -->
-            <div class="toggle-group" id="cafToggleGroup">
-              <div class="toggle-label">
-                <span class="toggle-title">Mon enfant bénéficie d'une aide CAF / VACAF</span>
-                <span class="toggle-sub">Aide CAF aux vacances, bon VACAF ou toute autre aide de la CAF</span>
-              </div>
-              <label class="toggle-switch">
-                <input type="checkbox" id="cafToggle">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-
-            <div id="cafFields" class="conditional-block" style="display:none">
-              <div class="form-group" style="margin-bottom:0">
-                <label for="cafNumero">Numéro allocataire CAF <span class="req">*</span></label>
-                <input type="text" id="cafNumero" name="N° allocataire CAF" placeholder="ex : 1234567A">
-                <span class="field-hint">Disponible sur votre espace CAF en ligne ou sur vos attestations.</span>
-              </div>
-            </div>
-
-            <!-- Pièces jointes -->
-            <p class="files-title">Pièces justificatives</p>
-
-            <div class="file-upload-group">
-
-              <div class="file-upload-item" id="fuCNI">
-                <label for="fileCNI" class="file-label">
-                  <span class="file-icon">🪪</span>
-                  <span class="file-info">
-                    <span class="file-title">Carte d'identité ou livret de famille <span class="req">*</span></span>
-                    <span class="file-sub">Photo recto-verso de la CNI, ou page du livret de famille</span>
-                  </span>
-                  <span class="file-btn">Choisir</span>
-                </label>
-                <input type="file" id="fileCNI" name="Carte identité ou livret de famille" accept=".pdf,.jpg,.jpeg,.png" required>
-                <div class="file-preview" id="prevCNI"></div>
-              </div>
-
-              <div class="file-upload-item" id="fuVaccin">
-                <label for="fileVaccin" class="file-label">
-                  <span class="file-icon">💉</span>
-                  <span class="file-info">
-                    <span class="file-title">Carnet de vaccination <span class="req">*</span></span>
-                    <span class="file-sub">Page des vaccins à jour (DTP obligatoire)</span>
-                  </span>
-                  <span class="file-btn">Choisir</span>
-                </label>
-                <input type="file" id="fileVaccin" name="Carnet de vaccination" accept=".pdf,.jpg,.jpeg,.png" required>
-                <div class="file-preview" id="prevVaccin"></div>
-              </div>
-
-              <div class="file-upload-item" id="fuVacaf" style="display:none">
-                <label for="fileVacaf" class="file-label">
-                  <span class="file-icon">📋</span>
-                  <span class="file-info">
-                    <span class="file-title">Justificatif VACAF / aide CAF <span class="req">*</span></span>
-                    <span class="file-sub">Attestation VACAF, bon de prise en charge ou courrier CAF</span>
-                  </span>
-                  <span class="file-btn">Choisir</span>
-                </label>
-                <input type="file" id="fileVacaf" name="Justificatif VACAF ou CAF" accept=".pdf,.jpg,.jpeg,.png">
-                <div class="file-preview" id="prevVacaf"></div>
-              </div>
-
-            </div>
-
-            <!-- Autorisation photo -->
-            <div class="toggle-group" id="photoToggleGroup" style="margin-top:28px">
-              <div class="toggle-label">
-                <span class="toggle-title">Autorisation photo / vidéo</span>
-                <span class="toggle-sub">J'autorise l'utilisation des photos et vidéos de mon enfant prises durant le séjour, à des fins de communication auprès des familles</span>
-              </div>
-              <label class="toggle-switch">
-                <input type="checkbox" id="photoToggle">
-                <span class="toggle-slider"></span>
-              </label>
+              <span class="step-tag">Étape 4 · Suite de la demande</span>
+              <h2>Après votre pré-inscription</h2>
+              <p>Aucun document confidentiel n'est demandé à cette étape.</p>
             </div>
 
             <div class="info-note">
-              <span>📝</span>
-              <p><strong>Fiche sanitaire</strong> — Elle vous sera transmise par email après confirmation de la pré-inscription. Merci de la retourner complétée avant le départ.</p>
+              <span>✅</span>
+              <p><strong>1. Vérification de la place</strong> — Fun Loisirs Réunion examine votre demande et vous confirme la disponibilité du séjour.</p>
+            </div>
+            <div class="info-note">
+              <span>📧</span>
+              <p><strong>2. Constitution du dossier</strong> — Après confirmation, vous recevez la liste des documents nécessaires et les modalités prévues pour leur transmission.</p>
+            </div>
+            <div class="info-note">
+              <span>🔒</span>
+              <p><strong>3. Données confidentielles</strong> — Ne transmettez pas de pièce d'identité, carnet de vaccination, numéro allocataire ou document médical par ce formulaire.</p>
             </div>
           </div>
 
