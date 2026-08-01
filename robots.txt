@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://leshortensias974.vercel.app/sitemap.xml
+Sitemap: https://www.leshortensias974.fr/sitemap.xml

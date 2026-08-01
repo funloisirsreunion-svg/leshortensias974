@@ -13,7 +13,7 @@ const COLONIES = [
     tarifCAF: 180,
     duree: '12 jours (11 au 22 octobre 2026)',
     aides: 'Aide CAF jusqu\'à 420 € → reste à charge 180 € · Pass Colo · VACAF',
-    description: '12 jours d\'aventure à La Plaine des Palmistes : Laser Game, Accro Roc, sortie au Zoo de Casela, Piscine, Parc du Colosse, randonnées et veillées animées.',
+    description: '12 jours d\'aventure à La Plaine-des-Palmistes : Laser Game, Accro Roc, sortie au zoo, Piscine, Parc du Colosse, randonnées et veillées animées.',
   },
   // ── Ajouter un nouveau séjour en copiant le bloc ci-dessous ──
   // {
