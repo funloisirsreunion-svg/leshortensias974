@@ -216,6 +216,29 @@
 }
 .btn-outline:hover { background:var(--vert-fonce); color:var(--blanc); transform:translateY(-2px); }
 
+/* ── Fichiers déposés (liste dynamique) ── */
+.uploaded-file-row {
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:8px 0; font-size:.87rem;
+}
+.uploaded-file-row + .uploaded-file-row { border-top:1px dashed var(--beige-fonce); }
+.uploaded-file-name { color:var(--texte); font-weight:600; }
+.uploaded-file-size { color:var(--texte-clair); font-size:.8rem; margin-left:6px; }
+.uploaded-file-status { font-size:.8rem; font-weight:700; }
+.uploaded-file-status.ok { color:var(--vert-fonce); }
+.uploaded-file-status.err { color:#e74c3c; }
+.uploaded-file-status.busy { color:var(--or); }
+.file-remove-btn {
+  background:none; border:none; color:#c0392b; cursor:pointer;
+  font-size:.85rem; font-weight:700; padding:2px 6px;
+}
+.file-remove-btn:hover { text-decoration:underline; }
+
+/* ── Checklist documents (étape 5) ── */
+.checklist-row { display:flex; align-items:center; gap:10px; padding:7px 0; font-size:.92rem; }
+.checklist-row .ok   { color:var(--vert-fonce); font-weight:700; }
+.checklist-row .miss { color:#c0392b; font-weight:700; }
+
 /* ── Responsive ── */
 @media (max-width:768px) {
   .insc-card { padding:32px 22px; }

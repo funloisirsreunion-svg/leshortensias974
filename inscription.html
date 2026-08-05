@@ -114,8 +114,10 @@
           <input type="hidden" name="_captcha"  value="true">
           <input type="text"   name="_honey"    style="display:none" tabindex="-1" autocomplete="off">
 
-          <!-- Champ calculé automatiquement par le JS -->
+          <!-- Champs calculés automatiquement par le JS -->
           <input type="hidden" id="valAge"   name="Âge au moment du séjour" value="">
+          <input type="hidden" id="valSubmissionId" name="Référence dossier" value="">
+          <input type="hidden" id="valDocsStatus" name="Documents déposés" value="">
 
           <!-- ══════════ ÉTAPE 1 · Séjour ══════════ -->
           <div class="insc-step active" id="step-1">
@@ -231,27 +233,136 @@
                 <input type="email" id="respEmail" name="Responsable légal – Email" required placeholder="votre@email.com" autocomplete="email">
               </div>
             </div>
+
+            <!-- ── Aide CAF / VACAF ── -->
+            <h3 class="files-title" style="margin-top:36px">Aide CAF / VACAF</h3>
+            <div class="form-group">
+              <label>Votre enfant bénéficie-t-il d'une aide CAF / VACAF pour ce séjour ? <span class="req">*</span></label>
+              <div class="radio-cards" id="vacafGroup">
+                <label class="radio-card">
+                  <input type="radio" name="Aide CAF-VACAF" value="Oui" id="vacafOui">
+                  <span class="radio-card-inner">✅ Oui, mon enfant bénéficie d'une aide CAF / VACAF</span>
+                </label>
+                <label class="radio-card">
+                  <input type="radio" name="Aide CAF-VACAF" value="Non" id="vacafNon">
+                  <span class="radio-card-inner">➖ Non, mon enfant ne bénéficie pas d'une aide CAF / VACAF</span>
+                </label>
+              </div>
+            </div>
+            <div class="conditional-block" id="vacafNumeroBlock" style="display:none">
+              <div class="form-group" style="margin-bottom:0">
+                <label for="vacafNumero">Numéro allocataire CAF <span style="text-transform:none;font-weight:400;color:var(--texte-clair)">(facultatif)</span></label>
+                <input type="text" id="vacafNumero" name="Numéro allocataire CAF" placeholder="ex : 1234567">
+              </div>
+            </div>
+
+            <!-- ── Droit à l'image ── -->
+            <h3 class="files-title">Autorisation concernant les photos et vidéos</h3>
+            <p class="files-intro">Dans le cadre du séjour, des photos ou vidéos de votre enfant peuvent être réalisées pour partager des souvenirs avec les familles ou présenter les activités de Fun Loisirs Réunion. Merci d'indiquer votre choix concernant l'utilisation de l'image de votre enfant. Ces autorisations sont valables pour la durée du séjour et une année après celui-ci ; vous pouvez les retirer à tout moment en contactant Fun Loisirs Réunion à <a href="mailto:contact.funloisirsreunion@gmail.com">contact.funloisirsreunion@gmail.com</a>.</p>
+
+            <div class="form-group">
+              <label>A. Partage privé avec les familles du séjour <span class="req">*</span></label>
+              <p class="field-hint" style="margin-bottom:8px">Photos/vidéos partagées uniquement avec les familles des enfants présents sur le séjour (ex : album privé, groupe WhatsApp du séjour).</p>
+              <div class="radio-cards">
+                <label class="radio-card">
+                  <input type="radio" name="Autorisation partage privé familles" value="J'autorise">
+                  <span class="radio-card-inner">✅ J'autorise</span>
+                </label>
+                <label class="radio-card">
+                  <input type="radio" name="Autorisation partage privé familles" value="Je n'autorise pas">
+                  <span class="radio-card-inner">🚫 Je n'autorise pas</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>B. Communication publique de l'association <span class="req">*</span></label>
+              <p class="field-hint" style="margin-bottom:8px">Site internet et réseaux sociaux de Fun Loisirs Réunion, supports de présentation de l'association (plaquettes, affiches).</p>
+              <div class="radio-cards">
+                <label class="radio-card">
+                  <input type="radio" name="Autorisation communication publique" value="J'autorise">
+                  <span class="radio-card-inner">✅ J'autorise</span>
+                </label>
+                <label class="radio-card">
+                  <input type="radio" name="Autorisation communication publique" value="Je n'autorise pas">
+                  <span class="radio-card-inner">🚫 Je n'autorise pas</span>
+                </label>
+              </div>
+            </div>
           </div>
 
-          <!-- ══════════ ÉTAPE 4 · Suite de la demande ══════════ -->
+          <!-- ══════════ ÉTAPE 4 · Documents ══════════ -->
           <div class="insc-step" id="step-4">
             <div class="step-head">
-              <span class="step-tag">Étape 4 · Suite de la demande</span>
-              <h2>Après votre pré-inscription</h2>
-              <p>Aucun document confidentiel n'est demandé à cette étape.</p>
+              <span class="step-tag">Étape 4 · Documents</span>
+              <h2>Documents à joindre</h2>
+              <p>Vos documents sont transmis de façon chiffrée et stockés dans un espace privé, accessible uniquement à Fun Loisirs Réunion.</p>
             </div>
 
-            <div class="info-note">
-              <span>✅</span>
-              <p><strong>1. Vérification de la place</strong> — Fun Loisirs Réunion examine votre demande et vous confirme la disponibilité du séjour.</p>
+            <!-- Génération de la fiche -->
+            <div class="info-note" style="background:rgba(45,90,39,.06);flex-direction:column;align-items:stretch;">
+              <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:14px;">
+                <span>📝</span>
+                <p><strong>1. Générez votre fiche d'inscription</strong> — Téléchargez la fiche préremplie avec les informations saisies, vérifiez-les, signez-la (à l'écran ou après impression), puis déposez la version signée ci-dessous.</p>
+              </div>
+              <div style="display:flex;gap:12px;flex-wrap:wrap">
+                <button type="button" class="btn btn-outline" id="btnGenFiche">📄 Générer ma fiche d'inscription</button>
+                <span class="field-hint" id="genFicheStatus"></span>
+              </div>
             </div>
-            <div class="info-note">
-              <span>📧</span>
-              <p><strong>2. Constitution du dossier</strong> — Après confirmation, vous recevez la liste des documents nécessaires et les modalités prévues pour leur transmission.</p>
+
+            <!-- Bloc 1 : Fiche signée -->
+            <h3 class="files-title" style="margin-top:32px">Fiche d'inscription complétée et signée <span class="req">*</span> — obligatoire</h3>
+            <p class="files-intro">Formats acceptés : PDF, JPG, JPEG, PNG.</p>
+            <div class="file-upload-group">
+              <div class="file-upload-item" id="itemFiche">
+                <label class="file-label">
+                  <span class="file-icon">📄</span>
+                  <span class="file-info">
+                    <span class="file-title">Fiche d'inscription signée</span>
+                    <span class="file-sub">PDF, JPG, JPEG ou PNG — 15 Mo max</span>
+                  </span>
+                  <span class="file-btn">Choisir un fichier</span>
+                  <input type="file" id="fileFiche" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png">
+                </label>
+                <div class="file-preview" id="previewFiche"></div>
+              </div>
             </div>
-            <div class="info-note">
-              <span>🔒</span>
-              <p><strong>3. Données confidentielles</strong> — Ne transmettez pas de pièce d'identité, carnet de vaccination, numéro allocataire ou document médical par ce formulaire.</p>
+
+            <!-- Bloc 2 : Carnet de vaccination -->
+            <h3 class="files-title">Copie des pages de vaccination du carnet de santé <span class="req">*</span> — obligatoire</h3>
+            <p class="files-intro">Formats acceptés : PDF, JPG, JPEG, PNG. Vous pouvez déposer plusieurs fichiers si les pages sont photographiées séparément.</p>
+            <div class="file-upload-group">
+              <div class="file-upload-item" id="itemCarnet">
+                <label class="file-label">
+                  <span class="file-icon">💉</span>
+                  <span class="file-info">
+                    <span class="file-title">Pages du carnet de vaccination</span>
+                    <span class="file-sub">PDF, JPG, JPEG ou PNG — plusieurs fichiers possibles</span>
+                  </span>
+                  <span class="file-btn">Ajouter un fichier</span>
+                  <input type="file" id="fileCarnet" multiple accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png">
+                </label>
+                <div class="file-preview" id="previewCarnet"></div>
+              </div>
+            </div>
+
+            <!-- Bloc 3 : Justificatif CAF -->
+            <h3 class="files-title" id="cafTitle">Attestation ou justificatif CAF / VACAF</h3>
+            <p class="files-intro" id="cafIntro">Formats acceptés : PDF, JPG, JPEG, PNG.</p>
+            <div class="file-upload-group">
+              <div class="file-upload-item" id="itemCaf">
+                <label class="file-label">
+                  <span class="file-icon">💶</span>
+                  <span class="file-info">
+                    <span class="file-title">Attestation CAF / VACAF</span>
+                    <span class="file-sub" id="cafSub">Facultatif</span>
+                  </span>
+                  <span class="file-btn">Choisir un fichier</span>
+                  <input type="file" id="fileCaf" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png">
+                </label>
+                <div class="file-preview" id="previewCaf"></div>
+              </div>
             </div>
           </div>
 
@@ -265,6 +376,8 @@
 
             <div id="recapBox" class="recap-box"></div>
 
+            <div class="recap-box" id="docChecklist" style="margin-bottom:28px"></div>
+
             <div class="certification-group">
               <label class="cert-label">
                 <input type="checkbox" id="certCheck">
@@ -272,7 +385,7 @@
               </label>
             </div>
 
-            <button type="submit" class="btn btn-primary btn-full submit-btn" id="submitBtn">
+            <button type="submit" class="btn btn-primary btn-full submit-btn" id="submitBtn" disabled>
               Envoyer la demande &nbsp;📬
             </button>
             <p class="form-note">Une copie vous sera envoyée par email. Fun Loisirs Réunion prendra contact avec vous pour étudier votre demande et confirmer la place de votre enfant.</p>
@@ -320,6 +433,7 @@
     </div>
   </footer>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="script.js"></script>
   <script src="inscription.js"></script>
 </body>

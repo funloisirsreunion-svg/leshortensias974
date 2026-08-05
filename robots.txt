@@ -1,4 +1,5 @@
 User-agent: *
 Allow: /
+Disallow: /admin-dossiers.html
 
 Sitemap: https://www.leshortensias974.fr/sitemap.xml

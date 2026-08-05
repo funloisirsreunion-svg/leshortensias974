@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dossiers d'inscription — Espace privé</title>
+<meta name="robots" content="noindex, nofollow" />
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, Segoe UI, Arial, sans-serif; max-width: 960px; margin: 40px auto; padding: 0 16px; background:#faf8f4; color:#222; }
+  h1 { font-size: 1.4rem; }
+  #loginBox { max-width: 360px; margin: 80px auto; padding: 24px; border: 1px solid #ddd; border-radius: 8px; background:#fff; }
+  #loginBox input { width: 100%; padding: 10px; margin: 8px 0; box-sizing: border-box; }
+  #loginBox button, .btn { background:#2d5a27; color:#fff; border:none; padding:10px 16px; border-radius:6px; cursor:pointer; font-size:.95rem; }
+  .btn.danger { background:#a33; }
+  .btn.small { padding:6px 10px; font-size:.8rem; margin-left:6px; }
+  #error { color:#a33; font-size:.9rem; min-height:1.2em; }
+  .card { border:1px solid #ddd; border-radius:8px; padding:16px; margin-bottom:16px; background:#fff; }
+  .card h3 { margin:0 0 8px; }
+  .meta-row { font-size:.9rem; margin:2px 0; }
+  .files { margin-top:10px; padding-top:10px; border-top:1px dashed #ccc; }
+  .file-row { display:flex; justify-content:space-between; align-items:center; font-size:.85rem; padding:4px 0; }
+  .badge { display:inline-block; font-size:.75rem; padding:2px 8px; border-radius:10px; background:#eef; margin-left:6px; }
+  .badge.yes { background:#dff5df; color:#256b25; }
+  .badge.no { background:#f5e2e2; color:#8b2c2c; }
+  #toolbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+</style>
+</head>
+<body>
+
+  <div id="loginBox">
+    <h1>🔒 Espace dossiers</h1>
+    <p>Accès réservé à Fun Loisirs Réunion.</p>
+    <input type="password" id="pwdInput" placeholder="Mot de passe admin" autocomplete="off" />
+    <button id="loginBtn">Se connecter</button>
+    <p id="error"></p>
+  </div>
+
+  <div id="appBox" style="display:none">
+    <div id="toolbar">
+      <h1>📁 Dossiers d'inscription</h1>
+      <div>
+        <button class="btn small" id="refreshBtn">↻ Actualiser</button>
+        <button class="btn small danger" id="purgeBtn">🗑 Purger &gt; 24 mois</button>
+      </div>
+    </div>
+    <div id="list"></div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  let pwd = sessionStorage.getItem('adminPwd') || '';
+
+  function docLabel(type) {
+    return { fiche: 'Fiche d\'inscription signée', carnet: 'Carnet de vaccination', caf: 'Justificatif CAF/VACAF' }[type] || type;
+  }
+
+  async function authedFetch(url, opts = {}) {
+    opts.headers = Object.assign({}, opts.headers, { 'x-admin-password': pwd });
+    return fetch(url, opts);
+  }
+
+  async function login() {
+    pwd = $('pwdInput').value;
+    $('error').textContent = '';
+    const res = await authedFetch('/api/admin/list');
+    if (res.status === 401) {
+      $('error').textContent = 'Mot de passe incorrect.';
+      return;
+    }
+    if (!res.ok) {
+      $('error').textContent = 'Erreur serveur.';
+      return;
+    }
+    sessionStorage.setItem('adminPwd', pwd);
+    $('loginBox').style.display = 'none';
+    $('appBox').style.display = 'block';
+    renderList(await res.json());
+  }
+
+  async function refresh() {
+    const res = await authedFetch('/api/admin/list');
+    if (res.ok) renderList(await res.json());
+  }
+
+  function renderList(data) {
+    const list = $('list');
+    list.innerHTML = '';
+    if (!data.submissions.length) {
+      list.innerHTML = '<p>Aucun dossier pour le moment.</p>';
+      return;
+    }
+    data.submissions.forEach(sub => {
+      const m = sub.meta || {};
+      const enfant = m.enfant || {};
+      const resp = m.responsable || {};
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <h3>${enfant.prenom || '?'} ${enfant.nom || ''} <span style="font-weight:400;font-size:.8rem;color:#777">— ${sub.id}</span></h3>
+        <div class="meta-row">📅 Reçu le ${m.submittedAt ? new Date(m.submittedAt).toLocaleString('fr-FR') : '—'}</div>
+        <div class="meta-row">🏕️ Séjour : ${(m.sejour && m.sejour.nom) || '—'}</div>
+        <div class="meta-row">👨‍👩‍👧 Responsable : ${resp.identite || '—'} · ${resp.telephone || '—'} · ${resp.email || '—'}</div>
+        <div class="meta-row">💶 CAF/VACAF : <span class="badge ${m.beneficiaireVacaf ? 'yes' : 'no'}">${m.beneficiaireVacaf ? 'Oui' : 'Non'}</span> ${m.numeroAllocataire ? '(n° ' + m.numeroAllocataire + ')' : ''}</div>
+        <div class="meta-row">📸 Partage privé familles : <span class="badge ${m.autorisationPartagePrive === true ? 'yes' : 'no'}">${m.autorisationPartagePrive === true ? 'Autorisé' : 'Refusé'}</span></div>
+        <div class="meta-row">📣 Communication publique : <span class="badge ${m.autorisationCommunicationPublique === true ? 'yes' : 'no'}">${m.autorisationCommunicationPublique === true ? 'Autorisé' : 'Refusé'}</span></div>
+        <div class="files">${sub.files.map(f => `
+          <div class="file-row">
+            <span>${docLabel(f.docType)} — ${(f.pathname.split('/').pop())} (${Math.round(f.size/1024)} Ko)</span>
+            <button class="btn small" data-path="${f.pathname}">⬇ Télécharger</button>
+          </div>`).join('') || '<p style="font-size:.85rem;color:#a33">Aucun fichier déposé.</p>'}
+        </div>`;
+      card.querySelectorAll('button[data-path]').forEach(btn => {
+        btn.addEventListener('click', () => downloadFile(btn.dataset.path));
+      });
+      list.appendChild(card);
+    });
+  }
+
+  async function downloadFile(pathname) {
+    const res = await authedFetch('/api/admin/download?pathname=' + encodeURIComponent(pathname));
+    if (!res.ok) { alert('Échec du téléchargement.'); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = pathname.split('/').pop();
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function purge() {
+    if (!confirm('Supprimer définitivement tous les dossiers reçus il y a plus de 24 mois ?')) return;
+    const res = await authedFetch('/api/admin/purge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ monthsOld: 24 }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.error || 'Échec.'); return; }
+    alert(data.deletedSubmissions.length + ' dossier(s) supprimé(s).');
+    refresh();
+  }
+
+  $('loginBtn').addEventListener('click', login);
+  $('pwdInput').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+  $('refreshBtn').addEventListener('click', refresh);
+  $('purgeBtn').addEventListener('click', purge);
+
+  if (pwd) login();
+})();
+</script>
+</body>
+</html>
