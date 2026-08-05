@@ -9,9 +9,14 @@ const COLONIES = [
     id: 'colo-octobre-2026',
     nom: 'Colonie d\'Octobre 2026 — 11 au 22 oct.',
     ages: '6 – 14 ans',
+    ageMin: 6,
+    ageMax: 14,
+    publicAccueilli: 'Enfants et adolescents de 6 à 14 ans',
     tarif: 600,
     tarifCAF: 180,
     duree: '12 jours (11 au 22 octobre 2026)',
+    dateDebut: '2026-10-11',
+    dateFin: '2026-10-22',
     aides: 'Aide CAF jusqu\'à 420 € → reste à charge 180 € · Pass Colo · VACAF',
     description: '12 jours d\'aventure à La Plaine-des-Palmistes : Laser Game, Accro Roc, sortie au zoo, Piscine, Parc du Colosse, randonnées et veillées animées.',
   },
@@ -20,9 +25,14 @@ const COLONIES = [
   //   id: 'colo-ete-2027',             // identifiant unique (pas d'espaces)
   //   nom: 'Colonie Été 2027',          // nom affiché dans le formulaire
   //   ages: '6 – 14 ans',
+  //   ageMin: 6,
+  //   ageMax: 14,
+  //   publicAccueilli: 'Enfants et adolescents de 6 à 14 ans',
   //   tarif: 600,                       // tarif public en euros
   //   tarifCAF: 180,                    // reste à charge avec aide CAF (optionnel)
   //   duree: '12 jours',
+  //   dateDebut: '2027-07-05',          // AAAA-MM-JJ — utilisé pour le calcul d'âge et le PDF
+  //   dateFin: '2027-07-17',
   //   aides: 'Aide CAF, Pass Colo et VACAF acceptés',
   //   description: 'Description du séjour...',
   // },
@@ -267,92 +277,289 @@ const COLONIES = [
   });
 
   // ── Génération de la fiche d'inscription PDF ──────────────
+  // ── Utilitaires dates / âge / nom de fichier ──────────────
+  function calcAgeAt(ddnIso, refIso) {
+    if (!ddnIso || !refIso) return null;
+    const ddn = new Date(ddnIso + 'T00:00:00');
+    const ref = new Date(refIso + 'T00:00:00');
+    if (isNaN(ddn) || isNaN(ref)) return null;
+    let age = ref.getFullYear() - ddn.getFullYear();
+    if (ref.getMonth() < ddn.getMonth() || (ref.getMonth() === ddn.getMonth() && ref.getDate() < ddn.getDate())) age--;
+    return age;
+  }
+  function formatDateFR(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso + 'T00:00:00');
+    if (isNaN(d)) return iso;
+    return d.toLocaleDateString('fr-FR');
+  }
+  const MOIS_FR = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+  function formatDateRangeFR(startIso, endIso) {
+    if (!startIso || !endIso) return '—';
+    const s = new Date(startIso + 'T00:00:00'), e = new Date(endIso + 'T00:00:00');
+    if (isNaN(s) || isNaN(e)) return '—';
+    if (s.getFullYear() === e.getFullYear() && s.getMonth() === e.getMonth()) {
+      return `du ${s.getDate()} au ${e.getDate()} ${MOIS_FR[e.getMonth()]} ${e.getFullYear()}`;
+    }
+    return `du ${s.getDate()} ${MOIS_FR[s.getMonth()]} ${s.getFullYear()} au ${e.getDate()} ${MOIS_FR[e.getMonth()]} ${e.getFullYear()}`;
+  }
+  function slugify(str) {
+    var map = { à:'a', â:'a', ä:'a', á:'a', ã:'a', ç:'c', é:'e', è:'e', ê:'e', ë:'e', î:'i', ï:'i', ì:'i', í:'i', ô:'o', ö:'o', ò:'o', ó:'o', õ:'o', ù:'u', û:'u', ü:'u', ú:'u', ñ:'n', ý:'y', ÿ:'y' };
+    return String(str || '').split('').map(function (ch) {
+      var low = ch.toLowerCase();
+      return map[low] || ch;
+    }).join('').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'X';
+  }
+
+  // ── Génération de la fiche d'inscription PDF ──────────────
   function generateFichePDF() {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+
     const c = COLONIES.find(x => x.id === colonieSelect.value);
     const sex = (document.querySelector('input[name="Sexe"]:checked') || {}).value || '—';
-    const vacaf = vacafAnswer() || '—';
+    const vacaf = vacafAnswer();
     const numAlloc = $('vacafNumero').value || '—';
-    const autoPrive = (document.querySelector('input[name="Autorisation partage privé familles"]:checked') || {}).value || '—';
-    const autoPublic = (document.querySelector('input[name="Autorisation communication publique"]:checked') || {}).value || '—';
+    const autoPrive = (document.querySelector('input[name="Autorisation partage privé familles"]:checked') || {}).value || null;
+    const autoPublic = (document.querySelector('input[name="Autorisation communication publique"]:checked') || {}).value || null;
+    const respNomComplet = $('respNomPrenom').value || '—';
+    const enfantNomComplet = (($('enfantPrenom').value || '') + ' ' + ($('enfantNom').value || '')).trim() || '—';
+    const ageAtStay = (c && c.dateDebut) ? calcAgeAt($('enfantDdn').value, c.dateDebut) : null;
 
-    const left = 18, width = 174;
-    let y = 20;
+    const PAGE_W = 210, PAGE_H = 297;
+    const MARGIN_L = 18, MARGIN_R = 18, MARGIN_TOP = 20, MARGIN_BOTTOM = 26;
+    const CONTENT_W = PAGE_W - MARGIN_L - MARGIN_R;
+    let y = MARGIN_TOP;
 
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(45, 90, 39);
-    doc.text('Fiche d\'inscription — Colonie de vacances', left, y); y += 8;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(60, 60, 60);
-    doc.text('Centre Les Hortensias — Organisé par Fun Loisirs Réunion', left, y); y += 5;
-    doc.text('41 rue des Mimosas, 97431 La Plaine-des-Palmistes, La Réunion', left, y); y += 5;
-    doc.text('Tél : 06 92 36 58 38  ·  contact.funloisirsreunion@gmail.com', left, y); y += 7;
-    doc.setDrawColor(45, 90, 39); doc.setLineWidth(0.5); doc.line(left, y, left + width, y); y += 9;
-
-    function section(title) {
-      if (y > 265) { doc.addPage(); y = 20; }
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(45, 90, 39);
-      doc.text(title, left, y); y += 6.5;
-      doc.setTextColor(30, 30, 30); doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    function addPageHeader() {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(120, 120, 120);
+      doc.text('FICHE D\'INSCRIPTION – COLONIE DE VACANCES (suite)', PAGE_W / 2, 12, { align: 'center' });
+      doc.setTextColor(25, 25, 25); doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5);
     }
-    function row(label, val) {
-      if (y > 275) { doc.addPage(); y = 20; }
-      doc.setFont('helvetica', 'bold'); doc.text(label + ' :', left, y);
+    function checkPageBreak(requiredHeight) {
+      if (y + requiredHeight > PAGE_H - MARGIN_BOTTOM) {
+        doc.addPage();
+        y = MARGIN_TOP;
+        addPageHeader();
+      }
+    }
+    function sectionTitle(title) {
+      checkPageBreak(13);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(11.5); doc.setTextColor(45, 90, 39);
+      doc.text(title, MARGIN_L, y);
+      y += 2;
+      doc.setDrawColor(45, 90, 39); doc.setLineWidth(0.4);
+      doc.line(MARGIN_L, y, PAGE_W - MARGIN_R, y);
+      y += 6;
+      doc.setTextColor(25, 25, 25); doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5);
+    }
+    // Libellé en gras suivi de la valeur — largeur de colonne calculée dynamiquement
+    // (évite tout chevauchement, quelle que soit la longueur du libellé ou de la valeur)
+    function fieldLine(label, value) {
+      const text = String(value == null || value === '' ? '—' : value);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5);
+      const labelText = label + ' : ';
+      const labelW = doc.getTextWidth(labelText);
       doc.setFont('helvetica', 'normal');
-      const lines = doc.splitTextToSize(String(val == null || val === '' ? '—' : val), width - 58);
-      doc.text(lines, left + 58, y);
-      y += 5.6 * lines.length;
+      const lines = doc.splitTextToSize(text, CONTENT_W - labelW);
+      const lineH = 5.4;
+      checkPageBreak(lines.length * lineH + 1.5);
+      doc.setFont('helvetica', 'bold');
+      doc.text(labelText, MARGIN_L, y);
+      doc.setFont('helvetica', 'normal');
+      doc.text(lines[0] || '—', MARGIN_L + labelW, y);
+      for (let i = 1; i < lines.length; i++) {
+        y += lineH;
+        doc.text(lines[i], MARGIN_L + 6, y);
+      }
+      y += lineH + 1.6;
+    }
+    function drawCheckbox(x, baselineY, checked) {
+      const s = 3.6;
+      const top = baselineY - 3.0;
+      doc.setDrawColor(60, 60, 60); doc.setLineWidth(0.35);
+      doc.rect(x, top, s, s);
+      if (checked) {
+        doc.setLineWidth(0.5);
+        doc.line(x + 0.6, top + 0.6, x + s - 0.6, top + s - 0.6);
+        doc.line(x + s - 0.6, top + 0.6, x + 0.6, top + s - 0.6);
+      }
+    }
+    function checkboxLine(label, checked) {
+      const s = 3.6, gap = 3;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5);
+      const lines = doc.splitTextToSize(label, CONTENT_W - s - gap);
+      const lineH = 5.4;
+      checkPageBreak(Math.max(lineH, lines.length * lineH) + 1.5);
+      drawCheckbox(MARGIN_L, y, checked);
+      doc.text(lines, MARGIN_L + s + gap, y);
+      y += lines.length * lineH + 2.6;
+    }
+    function paragraph(text, opts) {
+      opts = opts || {};
+      doc.setFont('helvetica', opts.italic ? 'italic' : 'normal');
+      doc.setFontSize(opts.size || 10.5);
+      if (opts.color) doc.setTextColor(opts.color[0], opts.color[1], opts.color[2]);
+      const lines = doc.splitTextToSize(text, CONTENT_W);
+      const lineH = opts.lineH || 5.4;
+      checkPageBreak(lines.length * lineH + 1.5);
+      doc.text(lines, MARGIN_L, y);
+      y += lines.length * lineH + (opts.after != null ? opts.after : 3);
+      doc.setTextColor(25, 25, 25); doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5);
+    }
+    function blankLine(label) {
+      checkPageBreak(7);
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5);
+      const labelText = label + ' : ';
+      const labelW = doc.getTextWidth(labelText);
+      doc.text(labelText, MARGIN_L, y);
+      doc.setDrawColor(120, 120, 120); doc.setLineWidth(0.3);
+      doc.line(MARGIN_L + labelW, y + 0.8, PAGE_W - MARGIN_R, y + 0.8);
+      y += 8;
     }
 
-    section('Informations sur le séjour');
-    row('Séjour', c ? c.nom : '—');
-    row('Dates', c ? c.duree : '—');
-    row('Centre', 'Les Hortensias, La Plaine-des-Palmistes, La Réunion');
-    row('Organisme', 'Fun Loisirs Réunion');
-    y += 3;
+    // ── En-tête ──────────────────────────────────────────
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(45, 90, 39);
+    doc.text('FICHE D\'INSCRIPTION – COLONIE DE VACANCES', PAGE_W / 2, y, { align: 'center' }); y += 8;
+    doc.setFontSize(11.5); doc.setTextColor(25, 25, 25);
+    doc.text('Centre Les Hortensias – Plaine-des-Palmistes', PAGE_W / 2, y, { align: 'center' }); y += 6;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5);
+    doc.text('Organisé par l\'association Fun Loisirs Réunion', PAGE_W / 2, y, { align: 'center' }); y += 7;
+    doc.setFontSize(9); doc.setTextColor(90, 90, 90);
+    doc.text('41 rue des Mimosas, 97431 La Plaine-des-Palmistes, La Réunion', PAGE_W / 2, y, { align: 'center' }); y += 4.3;
+    doc.text('Téléphone : 06 92 36 58 38', PAGE_W / 2, y, { align: 'center' }); y += 4.3;
+    doc.text('E-mail : contact.funloisirsreunion@gmail.com', PAGE_W / 2, y, { align: 'center' }); y += 6;
+    doc.setDrawColor(45, 90, 39); doc.setLineWidth(0.6);
+    doc.line(MARGIN_L, y, PAGE_W - MARGIN_R, y); y += 7;
+    doc.setTextColor(25, 25, 25); doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5);
 
-    section('Informations concernant l\'enfant');
-    row('Nom', $('enfantNom').value);
-    row('Prénom', $('enfantPrenom').value);
-    row('Date de naissance', $('enfantDdn').value);
-    row('Âge au moment du séjour', valAge.value);
-    row('Sexe', sex);
-    row('Adresse', `${$('enfantAdresse').value}, ${$('enfantCP').value} ${$('enfantVille').value}`);
-    row('Établissement scolaire', $('enfantEcole').value);
-    y += 3;
+    // ── Informations sur le séjour ───────────────────────
+    fieldLine('Nom du séjour', c ? c.nom : '—');
+    fieldLine('Dates', c && c.dateDebut ? formatDateRangeFR(c.dateDebut, c.dateFin) : (c ? c.duree : '—'));
+    fieldLine('Public accueilli', c ? (c.publicAccueilli || c.ages) : '—');
+    fieldLine('Tarif du séjour', c ? c.tarif + ' €' : '—');
+    y += 2;
 
-    section('Responsable légal');
-    row('Nom et prénom', $('respNomPrenom').value);
-    row('Lien avec l\'enfant', $('respLien').value);
-    row('Téléphone', $('respTel').value);
-    row('E-mail', $('respEmail').value);
-    y += 3;
+    // ── Informations sur l'enfant ────────────────────────
+    sectionTitle('INFORMATIONS SUR L\'ENFANT');
+    fieldLine('Nom', $('enfantNom').value);
+    fieldLine('Prénom', $('enfantPrenom').value);
+    fieldLine('Date de naissance', formatDateFR($('enfantDdn').value));
+    fieldLine('Âge au moment du séjour', ageAtStay != null ? (ageAtStay + ' an' + (ageAtStay > 1 ? 's' : '')) : (valAge.value || '—'));
+    fieldLine('Sexe', sex);
+    fieldLine('Adresse complète', `${$('enfantAdresse').value}, ${$('enfantCP').value} ${$('enfantVille').value}`);
+    fieldLine('Établissement scolaire fréquenté', $('enfantEcole').value);
+    y += 2;
 
-    section('Informations administratives');
-    row('Bénéficiaire CAF / VACAF', vacaf);
-    row('N° allocataire', numAlloc);
-    y += 3;
+    // ── Responsable légal ────────────────────────────────
+    sectionTitle('INFORMATIONS DU RESPONSABLE LÉGAL');
+    fieldLine('Nom et prénom', $('respNomPrenom').value);
+    fieldLine('Lien avec l\'enfant', $('respLien').value);
+    fieldLine('Téléphone', $('respTel').value);
+    fieldLine('Adresse e-mail', $('respEmail').value);
+    y += 2;
 
-    section('Autorisations');
-    row('Participation au séjour', 'Autorisée par la signature du responsable légal ci-dessous');
-    row('Partage privé (familles du séjour)', autoPrive);
-    row('Communication publique (site / réseaux)', autoPublic);
+    // ── CAF / VACAF ───────────────────────────────────────
+    sectionTitle('PARTICIPATION CAF / VACAF');
+    checkboxLine('Oui, mon enfant bénéficie d\'une aide CAF / VACAF.', vacaf === 'Oui');
+    checkboxLine('Non, mon enfant ne bénéficie pas d\'une aide CAF / VACAF.', vacaf === 'Non');
+    if (vacaf === 'Oui') fieldLine('Numéro allocataire', numAlloc);
+    y += 1;
+    paragraph('En cas de demande d\'aide CAF / VACAF, l\'attestation correspondante doit être jointe au dossier.', { italic: true, size: 9.5, color: [80, 80, 80], lineH: 4.6, after: 2 });
+
+    // Page 2 : autorisations, pièces à fournir, signature (nouvelle page si tout tient encore page 1)
+    if (doc.internal.getNumberOfPages() === 1) {
+      doc.addPage();
+      y = MARGIN_TOP;
+      addPageHeader();
+    }
+
+    // ── Autorisation parentale ───────────────────────────
+    sectionTitle('AUTORISATION PARENTALE');
+    paragraph(
+      `Je soussigné(e), ${respNomComplet}, responsable légal de l'enfant ${enfantNomComplet}, autorise sa participation au séjour de colonie de vacances organisé par Fun Loisirs Réunion au Centre Les Hortensias – Plaine-des-Palmistes.`,
+      { after: 5 }
+    );
+    blankLine('Fait à');
+    blankLine('Le');
+    checkPageBreak(6);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5);
+    doc.text('Signature du responsable légal :', MARGIN_L, y);
     y += 8;
+    doc.setFont('helvetica', 'normal');
 
-    section('Signature');
-    row('Fait à', '_______________________');
-    row('Le', new Date().toLocaleDateString('fr-FR'));
-    row('Nom du responsable légal', $('respNomPrenom').value);
-    y += 8;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-    doc.text('Signature du responsable légal :', left, y);
-    doc.rect(left, y + 4, 75, 32);
+    // ── Droit à l'image ───────────────────────────────────
+    sectionTitle('AUTORISATION CONCERNANT LES PHOTOS ET VIDÉOS');
+    checkPageBreak(6);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5);
+    doc.text('Partage privé auprès des familles du séjour', MARGIN_L, y); y += 6;
+    doc.setFont('helvetica', 'normal');
+    checkboxLine('J\'autorise.', autoPrive === 'J\'autorise');
+    checkboxLine('Je n\'autorise pas.', autoPrive === 'Je n\'autorise pas');
+    y += 3;
 
-    const nomFichier = 'fiche-inscription-' + ($('enfantNom').value || 'enfant').toLowerCase().replace(/[^a-z0-9]+/g, '-') + '.pdf';
+    checkPageBreak(6);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5);
+    doc.text('Communication publique de Fun Loisirs Réunion', MARGIN_L, y); y += 6;
+    paragraph('Supports concernés : site internet, réseaux sociaux, supports de présentation des activités de l\'association.', { italic: true, size: 9.5, color: [80, 80, 80], lineH: 4.6, after: 2 });
+    checkboxLine('J\'autorise.', autoPublic === 'J\'autorise');
+    checkboxLine('Je n\'autorise pas.', autoPublic === 'Je n\'autorise pas');
+    y += 2;
+
+    // ── Pièces à fournir ──────────────────────────────────
+    sectionTitle('PIÈCES À FOURNIR');
+    checkboxLine('Fiche d\'inscription complétée et signée (obligatoire).', false);
+    checkboxLine('Copie des pages de vaccination du carnet de santé (obligatoire).', false);
+    checkboxLine('Attestation CAF / VACAF' + (vacaf === 'Oui' ? ' (obligatoire, aide déclarée).' : ' (non requise, aucune aide déclarée).'), false);
+    checkboxLine('Autres documents éventuellement demandés par l\'organisateur.', false);
+    y += 2;
+
+    // ── Zone de signature finale ─────────────────────────
+    sectionTitle('SIGNATURE');
+    blankLine('Fait à');
+    blankLine('Le');
+    fieldLine('Nom du responsable légal', $('respNomPrenom').value);
+    checkPageBreak(45);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5);
+    doc.text('Signature du responsable légal :', MARGIN_L, y);
+    y += 5;
+    doc.setDrawColor(80, 80, 80); doc.setLineWidth(0.4);
+    doc.rect(MARGIN_L, y, 90, 36);
+    y += 40;
+
+    // ── Pied de page (numérotation) ───────────────────────
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(130, 130, 130);
+      doc.text('Centre Les Hortensias – Fun Loisirs Réunion – 06 92 36 58 38', PAGE_W / 2, PAGE_H - 12, { align: 'center' });
+      doc.text(`Page ${i}/${totalPages}`, PAGE_W - MARGIN_R, PAGE_H - 12, { align: 'right' });
+    }
+
+    const nomFichier = `Fiche_inscription_Colonie_${slugify($('enfantNom').value)}_${slugify($('enfantPrenom').value)}.pdf`;
     doc.save(nomFichier);
   }
 
   $('btnGenFiche').addEventListener('click', () => {
     if (!window.jspdf) { $('genFicheStatus').textContent = 'Générateur PDF indisponible pour le moment.'; return; }
+
+    const c = COLONIES.find(x => x.id === colonieSelect.value);
+    const ddn = $('enfantDdn').value;
+    if (c && c.dateDebut && ddn) {
+      const ageAtStay = calcAgeAt(ddn, c.dateDebut);
+      if (ageAtStay != null && (ageAtStay < c.ageMin || ageAtStay > c.ageMax)) {
+        const continuer = confirm(
+          `Attention : au début du séjour (${formatDateFR(c.dateDebut)}), l'enfant aura ${ageAtStay} an(s), ` +
+          `en dehors de la tranche d'âge autorisée pour ce séjour (${c.ageMin}-${c.ageMax} ans).\n\n` +
+          `Générer quand même la fiche d'inscription ?`
+        );
+        if (!continuer) {
+          $('genFicheStatus').textContent = 'Génération annulée — vérifiez la date de naissance ou le séjour choisi.';
+          return;
+        }
+      }
+    }
+
     try {
       generateFichePDF();
       $('genFicheStatus').textContent = 'Fiche téléchargée ✓ — vérifiez-la, signez-la, puis déposez-la ci-dessous.';
