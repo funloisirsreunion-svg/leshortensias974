@@ -69,15 +69,6 @@ const COLONIES = [
   const uploadState = { fiche: null, caf: null, carnet: [], ficheGeneree: null };
 
   const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-  const MAX_SIZE = 10 * 1024 * 1024;
-
-  let blobUploadFnPromise = null;
-  function getBlobUpload() {
-    if (!blobUploadFnPromise) {
-      blobUploadFnPromise = import('https://esm.sh/@vercel/blob@2.6.1/client').then(mod => mod.upload);
-    }
-    return blobUploadFnPromise;
-  }
 
   function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -148,39 +139,59 @@ const COLONIES = [
   document.querySelectorAll('input[name="Aide CAF-VACAF"]').forEach(r => r.addEventListener('change', updateVacafUI));
   updateVacafUI();
 
-  // ── Téléversement des documents (Vercel Blob, dépôt privé) ──
-  async function uploadDoc(file, docType) {
+  // ── Fichiers gardés en mémoire (aucun envoi tant que le dossier n'est pas
+  //    validé à l'étape 5) — envoyés en une seule fois, en pièces jointes
+  //    réelles, avec le mail final. Aucune dépendance à un stockage externe. ──
+  const MAX_PDF_SIZE = 4 * 1024 * 1024; // 4 Mo (PDF non recompressé)
+  const IMAGE_MAX_DIM = 1800;
+  const IMAGE_QUALITY = 0.72;
+
+  async function compressImageFile(file) {
+    if (!file.type.startsWith('image/') || typeof createImageBitmap !== 'function') return file;
+    try {
+      const bitmap = await createImageBitmap(file);
+      let { width, height } = bitmap;
+      const scale = Math.min(1, IMAGE_MAX_DIM / Math.max(width, height));
+      width = Math.max(1, Math.round(width * scale));
+      height = Math.max(1, Math.round(height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bitmap, 0, 0, width, height);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', IMAGE_QUALITY));
+      if (!blob || blob.size >= file.size) return file;
+      return new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
+    } catch (err) {
+      return file; // en cas d'échec de compression, on garde le fichier original
+    }
+  }
+
+  // Traite un fichier sélectionné : validation + compression si image.
+  async function processSelectedFile(file) {
     if (!ALLOWED_TYPES.includes(file.type)) {
       return { status: 'error', name: file.name, message: 'Format non accepté (PDF, JPG ou PNG uniquement).' };
     }
-    if (file.size > MAX_SIZE) {
-      return { status: 'error', name: file.name, message: 'Fichier trop volumineux (10 Mo maximum).' };
+    if (file.type === 'application/pdf' && file.size > MAX_PDF_SIZE) {
+      return { status: 'error', name: file.name, message: 'PDF trop volumineux (4 Mo maximum). Utilisez un scan plus léger.' };
     }
-    try {
-      const uploadFn = await getBlobUpload();
-      const safeName = file.name.normalize('NFKD').replace(/[^\w.\-]/g, '_').slice(0, 80);
-      const pathname = `submissions/${submissionId}/${docType}__${Date.now()}_${Math.random().toString(36).slice(2,8)}__${safeName}`;
-      const blob = await uploadFn(pathname, file, {
-        access: 'private',
-        handleUploadUrl: '/api/upload',
-      });
-      return { status: 'ok', name: file.name, size: file.size, pathname: blob.pathname };
-    } catch (err) {
-      return { status: 'error', name: file.name, message: 'Échec du téléversement (connexion interrompue). Réessayez.' };
+    const processed = file.type.startsWith('image/') ? await compressImageFile(file) : file;
+    if (processed.size > MAX_PDF_SIZE) {
+      return { status: 'error', name: file.name, message: 'Fichier trop volumineux même après compression. Essayez une autre photo.' };
     }
+    return { status: 'ok', name: file.name, size: processed.size, file: processed };
   }
 
-  function removeUploadedFile(pathname) {
-    if (!pathname) return;
-    fetch('/api/remove-upload', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pathname }),
-    }).catch(() => {});
+  function totalUploadBytes() {
+    let total = 0;
+    if (uploadState.ficheGeneree && uploadState.ficheGeneree.status === 'ok') total += uploadState.ficheGeneree.size;
+    if (uploadState.fiche && uploadState.fiche.status === 'ok') total += uploadState.fiche.size;
+    if (uploadState.caf && uploadState.caf.status === 'ok') total += uploadState.caf.size;
+    uploadState.carnet.forEach(f => { if (f.status === 'ok') total += f.size; });
+    return total;
   }
 
   // ── Bloc fichier unique (fiche signée / justificatif CAF) ──
-  function wireSingleUpload(inputId, previewId, itemId, docType, stateKey) {
+  function wireSingleUpload(inputId, previewId, itemId, stateKey) {
     const input = $(inputId);
     const preview = $(previewId);
     const item = $(itemId);
@@ -189,7 +200,7 @@ const COLONIES = [
       const entry = uploadState[stateKey];
       if (!entry) { preview.innerHTML = ''; item.classList.remove('has-file', 'input-error'); return; }
       if (entry.status === 'busy') {
-        preview.innerHTML = `<div class="uploaded-file-row"><span class="uploaded-file-name">${escapeHtml(entry.name)}</span><span class="uploaded-file-status busy">Envoi en cours…</span></div>`;
+        preview.innerHTML = `<div class="uploaded-file-row"><span class="uploaded-file-name">${escapeHtml(entry.name)}</span><span class="uploaded-file-status busy">Traitement…</span></div>`;
         return;
       }
       if (entry.status === 'error') {
@@ -198,7 +209,7 @@ const COLONIES = [
       }
       item.classList.add('has-file');
       preview.innerHTML = `<div class="uploaded-file-row">
-        <span><span class="uploaded-file-name">${escapeHtml(entry.name)}</span><span class="uploaded-file-size">(${formatSize(entry.size)})</span> <span class="uploaded-file-status ok">✓ Déposé</span></span>
+        <span><span class="uploaded-file-name">${escapeHtml(entry.name)}</span><span class="uploaded-file-size">(${formatSize(entry.size)})</span> <span class="uploaded-file-status ok">✓ Prêt</span></span>
         <button type="button" class="file-remove-btn">Supprimer</button>
       </div>`;
     }
@@ -209,25 +220,22 @@ const COLONIES = [
       if (!file) return;
       uploadState[stateKey] = { status: 'busy', name: file.name };
       render();
-      const result = await uploadDoc(file, docType);
-      uploadState[stateKey] = result.status === 'ok' ? result : null;
-      if (result.status === 'error') uploadState[stateKey] = { status: 'error', name: result.name, message: result.message };
+      const result = await processSelectedFile(file);
+      uploadState[stateKey] = result;
       render();
     });
 
     preview.addEventListener('click', e => {
       if (!e.target.matches('.file-remove-btn')) return;
-      const entry = uploadState[stateKey];
       uploadState[stateKey] = null;
       render();
-      if (entry) removeUploadedFile(entry.pathname);
     });
 
     render();
   }
 
-  wireSingleUpload('fileFiche', 'previewFiche', 'itemFiche', 'fiche', 'fiche');
-  wireSingleUpload('fileCaf', 'previewCaf', 'itemCaf', 'caf', 'caf');
+  wireSingleUpload('fileFiche', 'previewFiche', 'itemFiche', 'fiche');
+  wireSingleUpload('fileCaf', 'previewCaf', 'itemCaf', 'caf');
 
   // ── Bloc carnet de vaccination (fichiers multiples) ───────
   const fileCarnet    = $('fileCarnet');
@@ -238,7 +246,7 @@ const COLONIES = [
     if (!uploadState.carnet.length) { previewCarnet.innerHTML = ''; itemCarnet.classList.remove('has-file'); return; }
     itemCarnet.classList.toggle('has-file', uploadState.carnet.some(f => f.status === 'ok'));
     previewCarnet.innerHTML = uploadState.carnet.map(f => {
-      if (f.status === 'busy') return `<div class="uploaded-file-row"><span class="uploaded-file-name">${escapeHtml(f.name)}</span><span class="uploaded-file-status busy">Envoi en cours…</span></div>`;
+      if (f.status === 'busy') return `<div class="uploaded-file-row"><span class="uploaded-file-name">${escapeHtml(f.name)}</span><span class="uploaded-file-status busy">Traitement…</span></div>`;
       if (f.status === 'error') return `<div class="uploaded-file-row"><span class="uploaded-file-name">${escapeHtml(f.name)}</span><span class="uploaded-file-status err">⚠ ${escapeHtml(f.message)}</span></div>`;
       return `<div class="uploaded-file-row">
         <span><span class="uploaded-file-name">${escapeHtml(f.name)}</span><span class="uploaded-file-size">(${formatSize(f.size)})</span> <span class="uploaded-file-status ok">✓</span></span>
@@ -254,13 +262,9 @@ const COLONIES = [
       const tempId = 'tmp' + Math.random().toString(36).slice(2);
       uploadState.carnet.push({ tempId, status: 'busy', name: file.name });
       renderCarnetPreview();
-      const result = await uploadDoc(file, 'carnet');
+      const result = await processSelectedFile(file);
       const idx = uploadState.carnet.findIndex(f => f.tempId === tempId);
-      if (idx !== -1) {
-        uploadState.carnet[idx] = result.status === 'ok'
-          ? Object.assign({ tempId }, result)
-          : { tempId, status: 'error', name: result.name, message: result.message };
-      }
+      if (idx !== -1) uploadState.carnet[idx] = Object.assign({ tempId }, result);
       renderCarnetPreview();
     }
   });
@@ -270,10 +274,8 @@ const COLONIES = [
     if (!tmp) return;
     const idx = uploadState.carnet.findIndex(f => f.tempId === tmp);
     if (idx === -1) return;
-    const entry = uploadState.carnet[idx];
     uploadState.carnet.splice(idx, 1);
     renderCarnetPreview();
-    if (entry) removeUploadedFile(entry.pathname);
   });
 
   // ── Génération de la fiche d'inscription PDF ──────────────
@@ -621,7 +623,7 @@ const COLONIES = [
       prev.innerHTML = `<div class="uploaded-file-row"><span class="uploaded-file-name">${escapeHtml(entry.name)}</span><span class="uploaded-file-status err">⚠ ${escapeHtml(entry.message)}</span></div>`;
       return;
     }
-    prev.innerHTML = `<div class="uploaded-file-row"><span><span class="uploaded-file-name">${escapeHtml(entry.name)}</span><span class="uploaded-file-size">(${formatSize(entry.size)})</span> <span class="uploaded-file-status ok">✓ Générée et enregistrée dans le dossier</span></span></div>`;
+    prev.innerHTML = `<div class="uploaded-file-row"><span><span class="uploaded-file-name">${escapeHtml(entry.name)}</span><span class="uploaded-file-size">(${formatSize(entry.size)})</span> <span class="uploaded-file-status ok">✓ Générée, prête à être jointe au mail</span></span></div>`;
   }
 
   $('btnGenFiche').addEventListener('click', async () => {
@@ -663,23 +665,12 @@ const COLONIES = [
       document.body.appendChild(a); a.click(); a.remove();
       URL.revokeObjectURL(dlUrl);
 
-      // Conservation automatique dans le dossier (jointe au mail à l'étape 5)
-      uploadState.ficheGeneree = { status: 'busy', name: filename };
-      renderFicheGenereePreview();
-      $('genFicheStatus').textContent = `Fiche téléchargée ✓ — dossier ${numero}. Enregistrement en cours…`;
-
+      // Conservée en mémoire : jointe au mail à l'envoi final (étape 5),
+      // sans dépendre d'un service externe à ce stade.
       const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
-      const result = await uploadDoc(pdfFile, 'ficheGeneree');
-      uploadState.ficheGeneree = result.status === 'ok'
-        ? result
-        : { status: 'error', name: filename, message: result.message };
+      uploadState.ficheGeneree = { status: 'ok', name: filename, size: pdfFile.size, file: pdfFile };
       renderFicheGenereePreview();
-
-      if (result.status === 'ok') {
-        $('genFicheStatus').textContent = `Fiche téléchargée ✓ — dossier ${numero}. Vérifiez-la, signez-la, puis déposez la version signée ci-dessous.`;
-      } else {
-        $('genFicheStatus').textContent = `Fiche téléchargée, mais son enregistrement dans le dossier a échoué (${result.message}). Réessayez.`;
-      }
+      $('genFicheStatus').textContent = `Fiche téléchargée ✓ — dossier ${numero}. Vérifiez-la, signez-la, puis déposez la version signée ci-dessous.`;
     } catch (err) {
       $('genFicheStatus').textContent = 'Erreur : ' + (err.message || 'échec de la génération du PDF.');
     } finally {
@@ -905,64 +896,59 @@ const COLONIES = [
       return;
     }
 
+    const TOTAL_BUDGET = 4 * 1024 * 1024; // marge sous la limite plateforme de 4.5 Mo
+    if (totalUploadBytes() > TOTAL_BUDGET) {
+      const parent = certCheck.closest('.certification-group');
+      parent.querySelectorAll('.field-error').forEach(el => el.remove());
+      addError(parent, `Le total de vos documents (${formatSize(totalUploadBytes())}) est trop volumineux (max ${formatSize(TOTAL_BUDGET)}). Retirez ou remplacez un fichier avant de renvoyer.`);
+      parent.scrollIntoView({ behavior:'smooth', block:'center' });
+      return;
+    }
+
     const btn = $('submitBtn');
     const originalText = btn.textContent;
     btn.disabled = true;
     btn.textContent = 'Envoi en cours…';
 
     const vacaf = vacafAnswer();
-    const filesPayload = [];
-    if (uploadState.ficheGeneree && uploadState.ficheGeneree.status === 'ok') {
-      filesPayload.push({ docType: 'ficheGeneree', pathname: uploadState.ficheGeneree.pathname, name: uploadState.ficheGeneree.name, size: uploadState.ficheGeneree.size });
-    }
-    if (uploadState.fiche && uploadState.fiche.status === 'ok') {
-      filesPayload.push({ docType: 'fiche', pathname: uploadState.fiche.pathname, name: uploadState.fiche.name, size: uploadState.fiche.size });
-    }
-    uploadState.carnet.forEach(f => {
-      if (f.status === 'ok') filesPayload.push({ docType: 'carnet', pathname: f.pathname, name: f.name, size: f.size });
-    });
-    if (uploadState.caf && uploadState.caf.status === 'ok') {
-      filesPayload.push({ docType: 'caf', pathname: uploadState.caf.pathname, name: uploadState.caf.name, size: uploadState.caf.size });
-    }
-
     const autoPrive = (document.querySelector('input[name="Autorisation partage privé familles"]:checked') || {}).value;
     const autoPublic = (document.querySelector('input[name="Autorisation communication publique"]:checked') || {}).value;
     const c = COLONIES.find(x => x.id === colonieSelect.value);
 
-    const payload = {
-      submissionId,
-      dossierNumero,
-      beneficiaireVacaf: vacaf === 'Oui',
-      numeroAllocataire: $('vacafNumero').value || null,
-      autorisationPartagePrive: autoPrive === 'J\'autorise',
-      autorisationCommunicationPublique: autoPublic === 'J\'autorise',
-      sejour: c ? { id: c.id, nom: c.nom, duree: c.duree } : null,
-      enfant: {
-        prenom: $('enfantPrenom').value,
-        nom: $('enfantNom').value,
-        ddn: $('enfantDdn').value,
-        age: valAge.value,
-        sexe: (document.querySelector('input[name="Sexe"]:checked') || {}).value || null,
-        adresse: $('enfantAdresse').value,
-        cp: $('enfantCP').value,
-        ville: $('enfantVille').value,
-        ecole: $('enfantEcole').value,
-      },
-      responsable: {
-        identite: $('respNomPrenom').value,
-        lien: $('respLien').value,
-        telephone: $('respTel').value,
-        email: $('respEmail').value,
-      },
-      files: filesPayload,
-    };
+    const fd = new FormData();
+    fd.append('submissionId', submissionId);
+    fd.append('dossierNumero', dossierNumero || '');
+    fd.append('certification', certCheck.checked ? 'true' : 'false');
+    fd.append('beneficiaireVacaf', vacaf === 'Oui' ? 'true' : 'false');
+    fd.append('numeroAllocataire', $('vacafNumero').value || '');
+    fd.append('autorisationPartagePrive', autoPrive === 'J\'autorise' ? 'true' : 'false');
+    fd.append('autorisationCommunicationPublique', autoPublic === 'J\'autorise' ? 'true' : 'false');
+    fd.append('sejour', JSON.stringify(c ? { id: c.id, nom: c.nom, duree: c.duree } : null));
+    fd.append('enfant', JSON.stringify({
+      prenom: $('enfantPrenom').value,
+      nom: $('enfantNom').value,
+      ddn: $('enfantDdn').value,
+      age: valAge.value,
+      sexe: (document.querySelector('input[name="Sexe"]:checked') || {}).value || null,
+      adresse: $('enfantAdresse').value,
+      cp: $('enfantCP').value,
+      ville: $('enfantVille').value,
+      ecole: $('enfantEcole').value,
+    }));
+    fd.append('responsable', JSON.stringify({
+      identite: $('respNomPrenom').value,
+      lien: $('respLien').value,
+      telephone: $('respTel').value,
+      email: $('respEmail').value,
+    }));
+
+    if (uploadState.ficheGeneree && uploadState.ficheGeneree.status === 'ok') fd.append('ficheGeneree', uploadState.ficheGeneree.file, uploadState.ficheGeneree.name);
+    if (uploadState.fiche && uploadState.fiche.status === 'ok') fd.append('fiche', uploadState.fiche.file, uploadState.fiche.name);
+    uploadState.carnet.forEach(f => { if (f.status === 'ok') fd.append('carnet', f.file, f.name); });
+    if (uploadState.caf && uploadState.caf.status === 'ok') fd.append('caf', uploadState.caf.file, uploadState.caf.name);
 
     try {
-      const res = await fetch('/api/finalize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const res = await fetch('/api/send-inscription', { method: 'POST', body: fd });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Échec de l\'envoi du dossier.');
 
@@ -980,7 +966,7 @@ const COLONIES = [
       btn.textContent = originalText;
       const parent = certCheck.closest('.certification-group');
       parent.querySelectorAll('.field-error').forEach(el => el.remove());
-      addError(parent, 'L\'envoi du dossier a échoué. Aucune inscription n\'a été enregistrée. ' + (err.message || '') + ' Merci de réessayer — vos informations saisies sont conservées.');
+      addError(parent, 'L\'envoi du dossier a échoué. Vos informations ont été conservées sur cette page. ' + (err.message || '') + ' Merci de réessayer dans quelques instants.');
       parent.scrollIntoView({ behavior:'smooth', block:'center' });
     }
   });
