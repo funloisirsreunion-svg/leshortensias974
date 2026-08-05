@@ -66,10 +66,10 @@ const COLONIES = [
     : 'dossier-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
 
   // ── État des documents déposés ────────────────────────────
-  const uploadState = { fiche: null, caf: null, carnet: [] };
+  const uploadState = { fiche: null, caf: null, carnet: [], ficheGeneree: null };
 
   const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-  const MAX_SIZE = 15 * 1024 * 1024;
+  const MAX_SIZE = 10 * 1024 * 1024;
 
   let blobUploadFnPromise = null;
   function getBlobUpload() {
@@ -138,7 +138,7 @@ const COLONIES = [
     if (ans === 'Oui') {
       cafTitle.innerHTML = 'Attestation ou justificatif CAF / VACAF <span class="req">*</span> — obligatoire';
       cafIntro.textContent = 'Document obligatoire compte tenu de votre réponse à l\'étape précédente. Formats acceptés : PDF, JPG, JPEG, PNG.';
-      cafSub.textContent = 'PDF, JPG, JPEG ou PNG — 15 Mo max — obligatoire';
+      cafSub.textContent = 'PDF, JPG, JPEG ou PNG — 10 Mo max — obligatoire';
     } else {
       cafTitle.textContent = 'Attestation ou justificatif CAF / VACAF (facultatif)';
       cafIntro.textContent = 'Vous avez indiqué ne pas bénéficier d\'une aide CAF/VACAF : ce document n\'est pas nécessaire. Formats acceptés : PDF, JPG, JPEG, PNG.';
@@ -154,7 +154,7 @@ const COLONIES = [
       return { status: 'error', name: file.name, message: 'Format non accepté (PDF, JPG ou PNG uniquement).' };
     }
     if (file.size > MAX_SIZE) {
-      return { status: 'error', name: file.name, message: 'Fichier trop volumineux (15 Mo maximum).' };
+      return { status: 'error', name: file.name, message: 'Fichier trop volumineux (10 Mo maximum).' };
     }
     try {
       const uploadFn = await getBlobUpload();
@@ -311,10 +311,61 @@ const COLONIES = [
     }).join('').replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'X';
   }
 
+  // ── Numéro de dossier (attribué côté serveur, une seule fois par dossier) ──
+  let dossierNumero = null;
+  async function ensureDossierNumero() {
+    if (dossierNumero) return dossierNumero;
+    const res = await fetch('/api/dossier-number', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ submissionId }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Échec de l\'attribution du numéro de dossier.');
+    dossierNumero = data.dossierNumero;
+    return dossierNumero;
+  }
+
+  // ── Logos (chargés une seule fois, convertis en data URL pour jsPDF) ──
+  function loadImageAsDataUrl(url) {
+    return fetch(url)
+      .then(r => { if (!r.ok) throw new Error('logo introuvable : ' + url); return r.blob(); })
+      .then(blob => new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const dataUrl = reader.result;
+          const img = new Image();
+          img.onload = () => resolve({ dataUrl, width: img.naturalWidth, height: img.naturalHeight });
+          img.onerror = () => reject(new Error('image invalide : ' + url));
+          img.src = dataUrl;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      }));
+  }
+  let logosPromise = null;
+  function getLogos() {
+    if (!logosPromise) {
+      logosPromise = Promise.allSettled([
+        loadImageAsDataUrl('images/logo-les-hortensias.jpg'),
+        loadImageAsDataUrl('images/logo-fun-loisirs.jpg'),
+      ]).then(([hRes, fRes]) => ({
+        hortensias: hRes.status === 'fulfilled' ? hRes.value : null,
+        funloisirs: fRes.status === 'fulfilled' ? fRes.value : null,
+      }));
+    }
+    return logosPromise;
+  }
+  function fitInBox(w, h, maxW, maxH) {
+    const ratio = Math.min(maxW / w, maxH / h);
+    return { w: w * ratio, h: h * ratio };
+  }
+
   // ── Génération de la fiche d'inscription PDF ──────────────
-  function generateFichePDF() {
+  async function generateFichePDF(dossierNum) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const logos = await getLogos();
 
     const c = COLONIES.find(x => x.id === colonieSelect.value);
     const sex = (document.querySelector('input[name="Sexe"]:checked') || {}).value || '—';
@@ -353,8 +404,6 @@ const COLONIES = [
       y += 6;
       doc.setTextColor(25, 25, 25); doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5);
     }
-    // Libellé en gras suivi de la valeur — largeur de colonne calculée dynamiquement
-    // (évite tout chevauchement, quelle que soit la longueur du libellé ou de la valeur)
     function fieldLine(label, value) {
       const text = String(value == null || value === '' ? '—' : value);
       doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5);
@@ -418,13 +467,27 @@ const COLONIES = [
       y += 8;
     }
 
-    // ── En-tête ──────────────────────────────────────────
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(45, 90, 39);
-    doc.text('FICHE D\'INSCRIPTION – COLONIE DE VACANCES', PAGE_W / 2, y, { align: 'center' }); y += 8;
-    doc.setFontSize(11.5); doc.setTextColor(25, 25, 25);
-    doc.text('Centre Les Hortensias – Plaine-des-Palmistes', PAGE_W / 2, y, { align: 'center' }); y += 6;
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5);
-    doc.text('Organisé par l\'association Fun Loisirs Réunion', PAGE_W / 2, y, { align: 'center' }); y += 7;
+    // ── En-tête avec logos ───────────────────────────────
+    const HEADER_TOP = 13;
+    const LOGO_MAX_W = 28, LOGO_MAX_H = 20;
+    if (logos.hortensias) {
+      const fit = fitInBox(logos.hortensias.width, logos.hortensias.height, LOGO_MAX_W, LOGO_MAX_H);
+      doc.addImage(logos.hortensias.dataUrl, 'JPEG', MARGIN_L, HEADER_TOP, fit.w, fit.h);
+    }
+    if (logos.funloisirs) {
+      const fit = fitInBox(logos.funloisirs.width, logos.funloisirs.height, LOGO_MAX_W, LOGO_MAX_H);
+      doc.addImage(logos.funloisirs.dataUrl, 'JPEG', PAGE_W - MARGIN_R - fit.w, HEADER_TOP, fit.w, fit.h);
+    }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(45, 90, 39);
+    doc.text('FICHE D\'INSCRIPTION', PAGE_W / 2, HEADER_TOP + 8, { align: 'center' });
+    doc.text('COLONIE DE VACANCES', PAGE_W / 2, HEADER_TOP + 15, { align: 'center' });
+
+    y = HEADER_TOP + LOGO_MAX_H + 6;
+    doc.setFontSize(11); doc.setTextColor(25, 25, 25);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Centre Les Hortensias', PAGE_W / 2, y, { align: 'center' }); y += 5.5;
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
+    doc.text('Organisé par Fun Loisirs Réunion', PAGE_W / 2, y, { align: 'center' }); y += 6.5;
     doc.setFontSize(9); doc.setTextColor(90, 90, 90);
     doc.text('41 rue des Mimosas, 97431 La Plaine-des-Palmistes, La Réunion', PAGE_W / 2, y, { align: 'center' }); y += 4.3;
     doc.text('Téléphone : 06 92 36 58 38', PAGE_W / 2, y, { align: 'center' }); y += 4.3;
@@ -433,7 +496,8 @@ const COLONIES = [
     doc.line(MARGIN_L, y, PAGE_W - MARGIN_R, y); y += 7;
     doc.setTextColor(25, 25, 25); doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5);
 
-    // ── Informations sur le séjour ───────────────────────
+    // ── Numéro de dossier + informations sur le séjour ───
+    fieldLine('Numéro de dossier', dossierNum);
     fieldLine('Nom du séjour', c ? c.nom : '—');
     fieldLine('Dates', c && c.dateDebut ? formatDateRangeFR(c.dateDebut, c.dateFin) : (c ? c.duree : '—'));
     fieldLine('Public accueilli', c ? (c.publicAccueilli || c.ages) : '—');
@@ -527,29 +591,50 @@ const COLONIES = [
     doc.rect(MARGIN_L, y, 90, 36);
     y += 40;
 
-    // ── Pied de page (numérotation) ───────────────────────
+    // ── Pied de page (dossier + numérotation) ─────────────
     const totalPages = doc.internal.getNumberOfPages();
     for (let i = 1; i <= totalPages; i++) {
       doc.setPage(i);
       doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(130, 130, 130);
-      doc.text('Centre Les Hortensias – Fun Loisirs Réunion – 06 92 36 58 38', PAGE_W / 2, PAGE_H - 12, { align: 'center' });
+      doc.text('Centre Les Hortensias – Fun Loisirs Réunion', MARGIN_L, PAGE_H - 16);
+      doc.text('41 rue des Mimosas, 97431 La Plaine-des-Palmistes – 06 92 36 58 38 – contact.funloisirsreunion@gmail.com', MARGIN_L, PAGE_H - 12);
+      doc.text(`Dossier : ${dossierNum}`, PAGE_W - MARGIN_R, PAGE_H - 16, { align: 'right' });
       doc.text(`Page ${i}/${totalPages}`, PAGE_W - MARGIN_R, PAGE_H - 12, { align: 'right' });
     }
 
-    const nomFichier = `Fiche_inscription_Colonie_${slugify($('enfantNom').value)}_${slugify($('enfantPrenom').value)}.pdf`;
-    doc.save(nomFichier);
+    return doc;
   }
 
-  $('btnGenFiche').addEventListener('click', () => {
+  function ficheGenereeFilename(dossierNum) {
+    return `${dossierNum}_Fiche_generee_${slugify($('enfantNom').value)}_${slugify($('enfantPrenom').value)}.pdf`;
+  }
+
+  function renderFicheGenereePreview() {
+    const prev = $('previewFicheGeneree');
+    const entry = uploadState.ficheGeneree;
+    if (!entry) { prev.innerHTML = ''; return; }
+    if (entry.status === 'busy') {
+      prev.innerHTML = `<div class="uploaded-file-row"><span class="uploaded-file-name">${escapeHtml(entry.name)}</span><span class="uploaded-file-status busy">Enregistrement du dossier…</span></div>`;
+      return;
+    }
+    if (entry.status === 'error') {
+      prev.innerHTML = `<div class="uploaded-file-row"><span class="uploaded-file-name">${escapeHtml(entry.name)}</span><span class="uploaded-file-status err">⚠ ${escapeHtml(entry.message)}</span></div>`;
+      return;
+    }
+    prev.innerHTML = `<div class="uploaded-file-row"><span><span class="uploaded-file-name">${escapeHtml(entry.name)}</span><span class="uploaded-file-size">(${formatSize(entry.size)})</span> <span class="uploaded-file-status ok">✓ Générée et enregistrée dans le dossier</span></span></div>`;
+  }
+
+  $('btnGenFiche').addEventListener('click', async () => {
+    const btn = $('btnGenFiche');
     if (!window.jspdf) { $('genFicheStatus').textContent = 'Générateur PDF indisponible pour le moment.'; return; }
 
     const c = COLONIES.find(x => x.id === colonieSelect.value);
     const ddn = $('enfantDdn').value;
     if (c && c.dateDebut && ddn) {
-      const ageAtStay = calcAgeAt(ddn, c.dateDebut);
-      if (ageAtStay != null && (ageAtStay < c.ageMin || ageAtStay > c.ageMax)) {
+      const ageAtStayCheck = calcAgeAt(ddn, c.dateDebut);
+      if (ageAtStayCheck != null && (ageAtStayCheck < c.ageMin || ageAtStayCheck > c.ageMax)) {
         const continuer = confirm(
-          `Attention : au début du séjour (${formatDateFR(c.dateDebut)}), l'enfant aura ${ageAtStay} an(s), ` +
+          `Attention : au début du séjour (${formatDateFR(c.dateDebut)}), l'enfant aura ${ageAtStayCheck} an(s), ` +
           `en dehors de la tranche d'âge autorisée pour ce séjour (${c.ageMin}-${c.ageMax} ans).\n\n` +
           `Générer quand même la fiche d'inscription ?`
         );
@@ -560,13 +645,49 @@ const COLONIES = [
       }
     }
 
+    btn.disabled = true;
+    $('genFicheStatus').textContent = 'Attribution du numéro de dossier…';
+
     try {
-      generateFichePDF();
-      $('genFicheStatus').textContent = 'Fiche téléchargée ✓ — vérifiez-la, signez-la, puis déposez-la ci-dessous.';
+      const numero = await ensureDossierNumero();
+      $('genFicheStatus').textContent = 'Génération du PDF…';
+
+      const doc = await generateFichePDF(numero);
+      const filename = ficheGenereeFilename(numero);
+      const pdfBlob = doc.output('blob');
+
+      // Téléchargement pour la famille
+      const dlUrl = URL.createObjectURL(pdfBlob);
+      const a = document.createElement('a');
+      a.href = dlUrl; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(dlUrl);
+
+      // Conservation automatique dans le dossier (jointe au mail à l'étape 5)
+      uploadState.ficheGeneree = { status: 'busy', name: filename };
+      renderFicheGenereePreview();
+      $('genFicheStatus').textContent = `Fiche téléchargée ✓ — dossier ${numero}. Enregistrement en cours…`;
+
+      const pdfFile = new File([pdfBlob], filename, { type: 'application/pdf' });
+      const result = await uploadDoc(pdfFile, 'ficheGeneree');
+      uploadState.ficheGeneree = result.status === 'ok'
+        ? result
+        : { status: 'error', name: filename, message: result.message };
+      renderFicheGenereePreview();
+
+      if (result.status === 'ok') {
+        $('genFicheStatus').textContent = `Fiche téléchargée ✓ — dossier ${numero}. Vérifiez-la, signez-la, puis déposez la version signée ci-dessous.`;
+      } else {
+        $('genFicheStatus').textContent = `Fiche téléchargée, mais son enregistrement dans le dossier a échoué (${result.message}). Réessayez.`;
+      }
     } catch (err) {
-      $('genFicheStatus').textContent = 'Erreur lors de la génération du PDF.';
+      $('genFicheStatus').textContent = 'Erreur : ' + (err.message || 'échec de la génération du PDF.');
+    } finally {
+      btn.disabled = false;
     }
   });
+
+
 
   // ── Validation d'une étape ────────────────────────────────
   function validateStep(n) {
@@ -601,6 +722,11 @@ const COLONIES = [
     clearErrors(el);
     let ok = true;
 
+    if (!uploadState.ficheGeneree || uploadState.ficheGeneree.status !== 'ok') {
+      $('genFicheStatus').textContent = 'Merci de générer votre fiche d\'inscription avant de continuer.';
+      addError($('btnGenFiche').parentElement, 'Étape obligatoire : générez votre fiche d\'inscription.');
+      ok = false;
+    }
     if (!uploadState.fiche || uploadState.fiche.status !== 'ok') {
       showFileBlockError('itemFiche', 'previewFiche', 'Document obligatoire manquant.');
       ok = false;
@@ -614,6 +740,7 @@ const COLONIES = [
       ok = false;
     }
     // Upload en cours : on empêche de continuer tant que ce n'est pas terminé
+    if (uploadState.ficheGeneree && uploadState.ficheGeneree.status === 'busy') ok = false;
     if (uploadState.fiche && uploadState.fiche.status === 'busy') ok = false;
     if (uploadState.caf && uploadState.caf.status === 'busy') ok = false;
     if (uploadState.carnet.some(f => f.status === 'busy')) ok = false;
@@ -654,6 +781,7 @@ const COLONIES = [
     const box = $('docChecklist');
     const vacaf = vacafAnswer();
     const rows = [
+      { label: 'Fiche PDF générée', ok: !!(uploadState.ficheGeneree && uploadState.ficheGeneree.status === 'ok') },
       { label: 'Fiche d\'inscription signée déposée', ok: !!(uploadState.fiche && uploadState.fiche.status === 'ok') },
       { label: 'Carnet de vaccination déposé', ok: uploadState.carnet.some(f => f.status === 'ok') },
     ];
@@ -681,6 +809,7 @@ const COLONIES = [
     const r = (label, val) => `<div class="recap-row"><span>${label}</span><strong>${val}</strong></div>`;
 
     recapBox.innerHTML = `
+      ${dossierNumero ? `<div class="recap-section"><h4>🗂️ Dossier</h4>${r('Numéro de dossier', dossierNumero)}</div>` : ''}
       <div class="recap-section">
         <h4>🏕️ Séjour</h4>
         ${r('Colonie', c ? c.nom : '—')}
@@ -715,6 +844,7 @@ const COLONIES = [
       </div>
       <div class="recap-section">
         <h4>🔒 Documents</h4>
+        ${r('Fiche PDF générée', uploadState.ficheGeneree && uploadState.ficheGeneree.status === 'ok' ? uploadState.ficheGeneree.name : 'Non générée')}
         ${r('Fiche signée', uploadState.fiche && uploadState.fiche.status === 'ok' ? uploadState.fiche.name : 'Non déposée')}
         ${r('Carnet de vaccination', uploadState.carnet.filter(f => f.status === 'ok').length + ' fichier(s)')}
         ${r('Justificatif CAF', uploadState.caf && uploadState.caf.status === 'ok' ? uploadState.caf.name : (vacaf === 'Oui' ? 'Non déposé' : 'Non requis'))}
@@ -782,6 +912,9 @@ const COLONIES = [
 
     const vacaf = vacafAnswer();
     const filesPayload = [];
+    if (uploadState.ficheGeneree && uploadState.ficheGeneree.status === 'ok') {
+      filesPayload.push({ docType: 'ficheGeneree', pathname: uploadState.ficheGeneree.pathname, name: uploadState.ficheGeneree.name, size: uploadState.ficheGeneree.size });
+    }
     if (uploadState.fiche && uploadState.fiche.status === 'ok') {
       filesPayload.push({ docType: 'fiche', pathname: uploadState.fiche.pathname, name: uploadState.fiche.name, size: uploadState.fiche.size });
     }
@@ -798,6 +931,7 @@ const COLONIES = [
 
     const payload = {
       submissionId,
+      dossierNumero,
       beneficiaireVacaf: vacaf === 'Oui',
       numeroAllocataire: $('vacafNumero').value || null,
       autorisationPartagePrive: autoPrive === 'J\'autorise',
@@ -830,20 +964,23 @@ const COLONIES = [
         body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Échec de l\'enregistrement du dossier.');
+      if (!res.ok) throw new Error(data.error || 'Échec de l\'envoi du dossier.');
 
-      $('valSubmissionId').value = submissionId;
-      $('valDocsStatus').value = 'Fiche signée : oui · Carnet vaccination : ' +
-        uploadState.carnet.filter(f => f.status === 'ok').length + ' fichier(s) · CAF/VACAF : ' +
-        (uploadState.caf && uploadState.caf.status === 'ok' ? 'déposé' : (vacaf === 'Oui' ? 'MANQUANT' : 'non requis'));
+      const docs = data.docsStatus || {};
+      const docsParam = [
+        'ficheGeneree:' + (docs.ficheGeneree ? 'ok' : 'ko'),
+        'fiche:' + (docs.fiche ? 'ok' : 'ko'),
+        'carnet:' + (docs.carnet ? 'ok' : 'ko'),
+        'caf:' + (docs.caf ? 'ok' : (docs.cafRequired ? 'ko' : 'nr')),
+      ].join(',');
 
-      form.submit(); // POST natif vers FormSubmit — ne redéclenche pas l'événement 'submit'
+      window.location.href = 'inscription-confirmee.html?dossier=' + encodeURIComponent(data.dossierNumero) + '&docs=' + encodeURIComponent(docsParam);
     } catch (err) {
       btn.disabled = false;
       btn.textContent = originalText;
       const parent = certCheck.closest('.certification-group');
       parent.querySelectorAll('.field-error').forEach(el => el.remove());
-      addError(parent, 'Connexion interrompue ou erreur serveur (' + err.message + '). Merci de réessayer.');
+      addError(parent, 'L\'envoi du dossier a échoué. Aucune inscription n\'a été enregistrée. ' + (err.message || '') + ' Merci de réessayer — vos informations saisies sont conservées.');
       parent.scrollIntoView({ behavior:'smooth', block:'center' });
     }
   });

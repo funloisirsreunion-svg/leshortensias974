@@ -81,11 +81,21 @@
       <h1>Demande bien envoyée !</h1>
       <p>Merci pour votre confiance. Votre demande de pré-inscription a été transmise à l'équipe de <strong>Fun Loisirs Réunion</strong>.</p>
 
+      <div id="dossierBox" style="display:none;background:var(--beige);border-radius:var(--radius-sm);padding:18px 24px;margin:20px 0;">
+        <p style="margin:0;font-size:1.05rem;">Numéro de dossier : <strong id="dossierNum" style="color:var(--vert-fonce);"></strong></p>
+      </div>
+
+      <div id="docsBox" class="confirm-steps" style="display:none;">
+        <h3>Documents reçus</h3>
+        <ul id="docsList" style="display:flex;flex-direction:column;gap:8px;padding-left:4px;list-style:none;"></ul>
+      </div>
+
+      <p style="font-weight:600;">L'enfant n'est pas encore définitivement inscrit : Fun Loisirs Réunion prendra contact avec vous afin d'étudier la demande et de confirmer la disponibilité.</p>
+
       <div class="confirm-steps">
         <h3>Et maintenant ?</h3>
         <ol>
           <li>Fun Loisirs Réunion vérifie la disponibilité et les informations de votre demande.</li>
-          <li>Après confirmation, vous recevez la liste des documents nécessaires et les modalités prévues pour leur transmission.</li>
           <li>Vous serez contacté(e) par téléphone ou email pour confirmer la place de votre enfant.</li>
           <li>Après confirmation, vous recevrez la <strong>fiche sanitaire</strong> à remplir avant le départ.</li>
         </ol>
@@ -131,5 +141,31 @@
   </footer>
 
   <script src="script.js"></script>
+  <script>
+    (function () {
+      var params = new URLSearchParams(window.location.search);
+      var dossier = params.get('dossier');
+      if (dossier) {
+        document.getElementById('dossierNum').textContent = dossier;
+        document.getElementById('dossierBox').style.display = 'block';
+      }
+      var docsParam = params.get('docs');
+      if (docsParam) {
+        var labels = { fiche: 'Fiche d\'inscription signée', ficheGeneree: 'Fiche PDF générée', carnet: 'Carnet de vaccination', caf: 'Attestation CAF/VACAF' };
+        var list = document.getElementById('docsList');
+        docsParam.split(',').forEach(function (entry) {
+          var parts = entry.split(':');
+          var key = parts[0], status = parts[1];
+          var li = document.createElement('li');
+          var label = labels[key] || key;
+          if (status === 'ok') li.textContent = '✓ ' + label + ' — reçue';
+          else if (status === 'nr') li.textContent = '— ' + label + ' — non requise';
+          else li.textContent = '✗ ' + label;
+          list.appendChild(li);
+        });
+        document.getElementById('docsBox').style.display = 'block';
+      }
+    })();
+  </script>
 </body>
 </html>

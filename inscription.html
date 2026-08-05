@@ -103,21 +103,10 @@
       <div class="insc-card fade-in">
         <form
           id="inscriptionForm"
-          action="https://formsubmit.co/contact.funloisirsreunion@gmail.com"
-          method="POST"
           novalidate
         >
-          <!-- Config FormSubmit -->
-          <input type="hidden" name="_subject"  value="🏕️ Nouvelle demande d'inscription – Les Hortensias">
-          <input type="hidden" name="_template" value="table">
-          <input type="hidden" name="_next"     value="https://www.leshortensias974.fr/inscription-confirmee.html">
-          <input type="hidden" name="_captcha"  value="true">
-          <input type="text"   name="_honey"    style="display:none" tabindex="-1" autocomplete="off">
-
-          <!-- Champs calculés automatiquement par le JS -->
-          <input type="hidden" id="valAge"   name="Âge au moment du séjour" value="">
-          <input type="hidden" id="valSubmissionId" name="Référence dossier" value="">
-          <input type="hidden" id="valDocsStatus" name="Documents déposés" value="">
+          <!-- Champ calculé automatiquement par le JS -->
+          <input type="hidden" id="valAge" name="Âge au moment du séjour" value="">
 
           <!-- ══════════ ÉTAPE 1 · Séjour ══════════ -->
           <div class="insc-step active" id="step-1">
@@ -303,12 +292,13 @@
             <div class="info-note" style="background:rgba(45,90,39,.06);flex-direction:column;align-items:stretch;">
               <div style="display:flex;gap:14px;align-items:flex-start;margin-bottom:14px;">
                 <span>📝</span>
-                <p><strong>1. Générez votre fiche d'inscription</strong> — Téléchargez la fiche préremplie avec les informations saisies, vérifiez-les, signez-la (à l'écran ou après impression), puis déposez la version signée ci-dessous.</p>
+                <p><strong>1. Générez votre fiche d'inscription <span class="req">*</span></strong> — Obligatoire. Un numéro de dossier vous est attribué à la génération. Téléchargez la fiche préremplie, vérifiez-la, signez-la (à l'écran ou après impression), puis déposez la version signée ci-dessous. La fiche générée est automatiquement conservée dans votre dossier et jointe au mail envoyé à Fun Loisirs Réunion, en plus de la version signée.</p>
               </div>
-              <div style="display:flex;gap:12px;flex-wrap:wrap">
+              <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
                 <button type="button" class="btn btn-outline" id="btnGenFiche">📄 Générer ma fiche d'inscription</button>
                 <span class="field-hint" id="genFicheStatus"></span>
               </div>
+              <div class="file-preview" id="previewFicheGeneree" style="padding:0;margin-top:8px"></div>
             </div>
 
             <!-- Bloc 1 : Fiche signée -->
@@ -320,7 +310,7 @@
                   <span class="file-icon">📄</span>
                   <span class="file-info">
                     <span class="file-title">Fiche d'inscription signée</span>
-                    <span class="file-sub">PDF, JPG, JPEG ou PNG — 15 Mo max</span>
+                    <span class="file-sub">PDF, JPG, JPEG ou PNG — 10 Mo max</span>
                   </span>
                   <span class="file-btn">Choisir un fichier</span>
                   <input type="file" id="fileFiche" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png">
@@ -338,7 +328,7 @@
                   <span class="file-icon">💉</span>
                   <span class="file-info">
                     <span class="file-title">Pages du carnet de vaccination</span>
-                    <span class="file-sub">PDF, JPG, JPEG ou PNG — plusieurs fichiers possibles</span>
+                    <span class="file-sub">PDF, JPG, JPEG ou PNG — 10 Mo max par fichier, plusieurs fichiers possibles</span>
                   </span>
                   <span class="file-btn">Ajouter un fichier</span>
                   <input type="file" id="fileCarnet" multiple accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png">

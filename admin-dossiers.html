@@ -54,7 +54,7 @@
   let pwd = sessionStorage.getItem('adminPwd') || '';
 
   function docLabel(type) {
-    return { fiche: 'Fiche d\'inscription signée', carnet: 'Carnet de vaccination', caf: 'Justificatif CAF/VACAF' }[type] || type;
+    return { ficheGeneree: 'Fiche PDF générée', fiche: 'Fiche d\'inscription signée', carnet: 'Carnet de vaccination', caf: 'Justificatif CAF/VACAF' }[type] || type;
   }
 
   async function authedFetch(url, opts = {}) {
@@ -99,7 +99,7 @@
       const card = document.createElement('div');
       card.className = 'card';
       card.innerHTML = `
-        <h3>${enfant.prenom || '?'} ${enfant.nom || ''} <span style="font-weight:400;font-size:.8rem;color:#777">— ${sub.id}</span></h3>
+        <h3>${m.dossierNumero ? m.dossierNumero + ' — ' : ''}${enfant.prenom || '?'} ${enfant.nom || ''} <span style="font-weight:400;font-size:.8rem;color:#777">— ${sub.id}</span></h3>
         <div class="meta-row">📅 Reçu le ${m.submittedAt ? new Date(m.submittedAt).toLocaleString('fr-FR') : '—'}</div>
         <div class="meta-row">🏕️ Séjour : ${(m.sejour && m.sejour.nom) || '—'}</div>
         <div class="meta-row">👨‍👩‍👧 Responsable : ${resp.identite || '—'} · ${resp.telephone || '—'} · ${resp.email || '—'}</div>

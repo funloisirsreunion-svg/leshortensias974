@@ -1,7 +1,7 @@
 import { handleUpload } from '@vercel/blob/client';
 
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-const MAX_SIZE = 15 * 1024 * 1024; // 15 Mo par fichier
+const MAX_SIZE = 10 * 1024 * 1024; // 10 Mo par fichier
 
 export default async function handler(request, response) {
   try {
