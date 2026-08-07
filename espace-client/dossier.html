@@ -28,7 +28,7 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
-    import { STATUTS, DOC_STATUTS, REGIMES, NIVEAUX, documentsForType, labelOf, badgeClassForDocStatut, formatDateFr, formatMontant } from '../lib/appConstants.js';
+    import { STATUTS, DOC_STATUTS, REGIMES, NIVEAUX, labelForDocumentType, labelOf, badgeClassForDocStatut, formatDateFr, formatMontant, docCompleteness } from '../lib/appConstants.js';
 
     const dossierId = new URLSearchParams(window.location.search).get('id');
     const root = document.getElementById('appRoot');
@@ -82,12 +82,8 @@
 
     function buildTodoList() {
       const items = [];
-      const docs = documentsForType(dossier.client_type);
-      const docsATraiter = docs.filter(dt => {
-        const doc = documents.find(x => x.type === dt.value);
-        return doc && doc.statut === 'a_fournir';
-      });
-      docsATraiter.forEach(dt => items.push(`Déposer : ${dt.label}`));
+      documents.filter(d => d.statut === 'a_fournir').forEach(d => items.push(`Déposer : ${labelForDocumentType(d.type)}`));
+      documents.filter(d => d.statut === 'refuse').forEach(d => items.push(`Corriger : ${labelForDocumentType(d.type)}${d.refus_motif ? ' — ' + d.refus_motif : ''}`));
       if (dossier.client_type === 'school') {
         if (dossier.effectif_def_eleves === null || dossier.effectif_def_eleves === undefined) {
           items.push('Compléter l\'effectif définitif d\'élèves');
@@ -235,21 +231,28 @@
 
         <div class="app-card">
           <h2>Documents</h2>
+          ${(() => { const c = docCompleteness(documents); return c.total ? `<p style="color:var(--texte-clair);font-size:.88rem;margin-bottom:14px;">${c.complete ? '✅' : '⚠️'} ${c.valides}/${c.total} documents requis validés</p>` : ''; })()}
           <div id="msgDocs"></div>
-          ${documentsForType(dossier.client_type).map(dt => {
-            const doc = documents.find(x => x.type === dt.value) || { statut: 'a_fournir' };
-            if (doc.statut === 'non_requis') return '';
+          ${documents.filter(d => d.statut !== 'non_requis').sort((a, b) => a.type.localeCompare(b.type)).map(doc => {
+            const canEdit = doc.document_source !== 'admin' && doc.statut !== 'valide';
             return `
             <div class="app-doc-row">
-              <span class="app-doc-name">${dt.label}</span>
+              <span class="app-doc-name">
+                ${esc(labelForDocumentType(doc.type))}
+                ${doc.commentaire ? `<br/><span style="font-size:.78rem;color:var(--texte-clair);font-weight:400;">${esc(doc.commentaire)}</span>` : ''}
+                ${doc.statut === 'refuse' && doc.refus_motif ? `<br/><span style="font-size:.78rem;color:#c0392b;font-weight:400;">Motif du refus : ${esc(doc.refus_motif)}</span>` : ''}
+              </span>
               <span class="${badgeClassForDocStatut(doc.statut)}">${labelOf(DOC_STATUTS, doc.statut)}</span>
-              ${doc.file_name ? `<span style="font-size:.8rem;color:var(--texte-clair);">${esc(doc.file_name)}</span>` : ''}
+              ${doc.file_name ? (doc.storage_path ? `<a href="#" data-download="${doc.storage_path}" style="font-size:.8rem;color:var(--vert-fonce);">${esc(doc.file_name)}</a>` : `<span style="font-size:.8rem;color:var(--texte-clair);">${esc(doc.file_name)}</span>`) : ''}
+              ${canEdit ? `
               <label class="app-btn app-btn-sm app-btn-outline" style="cursor:pointer;">
                 ${doc.file_name ? 'Remplacer' : 'Déposer'}
-                <input type="file" data-doctype="${dt.value}" style="display:none;" />
+                <input type="file" data-doctype="${doc.type}" style="display:none;" />
               </label>
+              ${doc.file_name ? `<button class="app-btn app-btn-sm app-btn-outline" data-remove-doc="${doc.type}">Retirer</button>` : ''}
+              ` : (doc.document_source === 'admin' ? '<span style="font-size:.78rem;color:var(--texte-clair);">Fourni par Fun Loisirs</span>' : '')}
             </div>`;
-          }).join('')}
+          }).join('') || '<p style="color:var(--texte-clair);font-size:.85rem;">Aucun document pour le moment.</p>'}
         </div>
 
         <div class="app-card">
@@ -276,6 +279,19 @@
       document.getElementById('virementForm').addEventListener('submit', onSignalerVirement);
       root.querySelectorAll('input[type=file][data-doctype]').forEach(input => {
         input.addEventListener('change', onUploadDocument);
+      });
+      root.querySelectorAll('[data-remove-doc]').forEach(btn => {
+        btn.addEventListener('click', onRemoveDocument);
+      });
+      root.querySelectorAll('[data-download]').forEach(a => {
+        a.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const path = a.dataset.download;
+          if (!path) return;
+          const { data, error } = await supabase.storage.from('documents-dossiers').createSignedUrl(path, 60);
+          if (error) { showMsg('msgDocs', error.message); return; }
+          window.open(data.signedUrl, '_blank');
+        });
       });
     }
 
@@ -350,6 +366,21 @@
         await loadAll();
       } catch (error) {
         showMsg('msgDocs', error.message || 'Échec du dépôt du document.');
+      }
+    }
+
+    async function onRemoveDocument(e) {
+      const type = e.target.dataset.removeDoc;
+      if (!window.confirm('Retirer ce document ? Vous pourrez en déposer un nouveau ensuite.')) return;
+      try {
+        const { error } = await supabase.from('documents')
+          .update({ storage_path: null, file_name: null, statut: 'a_fournir' })
+          .eq('dossier_id', dossier.id).eq('type', type);
+        if (error) throw error;
+        showMsg('msgDocs', 'Document retiré.', 'success');
+        await loadAll();
+      } catch (error) {
+        showMsg('msgDocs', error.message || 'Échec du retrait (le document est peut-être déjà validé).');
       }
     }
 

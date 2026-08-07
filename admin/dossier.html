@@ -27,12 +27,14 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
-    import { STATUTS, DOC_STATUTS, REGIMES, NIVEAUX, JOURNAL_LABELS, ACCESS_STATUTS, CLIENT_TYPES, STRUCTURE_TYPES, FORMULES, documentsForType, labelOf, formatDateFr, formatMontant } from '../lib/appConstants.js';
+    import { STATUTS, DOC_STATUTS, REGIMES, NIVEAUX, JOURNAL_LABELS, ACCESS_STATUTS, CLIENT_TYPES, STRUCTURE_TYPES, FORMULES, ALL_DOCUMENT_TYPES, DOCUMENT_SOURCES, labelForDocumentType, labelOf, formatDateFr, formatMontant, docCompleteness } from '../lib/appConstants.js';
 
     const params = new URLSearchParams(window.location.search);
     const dossierId = params.get('id');
     const root = document.getElementById('appRoot');
     let supabase, session, dossier, regimes, documents, paiements, signalements, historique, journal, acces;
+    let showNonRequis = false;
+    let deletePanelOpen = false;
 
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
     function opt(list, val, key='value', lab='label') {
@@ -93,13 +95,11 @@
       if (s === 'demande_recue') {
         actions.push({ id: 'valider', label: 'Valider la demande', cls: '' });
         actions.push({ id: 'refuser', label: 'Refuser', cls: 'app-btn-outline' });
-        actions.push({ id: 'archiver', label: 'Archiver', cls: 'app-btn-outline' });
-      } else if (!['refusee', 'archivee', 'annule', 'cloture'].includes(s)) {
+      } else if (!['refusee', 'annule', 'cloture'].includes(s)) {
         if (s === 'demande_validee' && dossier.montant_devis) {
           actions.push({ id: 'devis_envoye', label: 'Marquer le devis envoyé', cls: '' });
         }
         actions.push({ id: 'relance', label: 'Envoyer une relance', cls: 'app-btn-outline' });
-        actions.push({ id: 'archiver', label: 'Archiver', cls: 'app-btn-outline' });
       }
       return actions;
     }
@@ -197,6 +197,30 @@
             </div>`;
     }
 
+    function renderDocRow(doc) {
+      const sourceInfo = DOCUMENT_SOURCES.find(s => s.value === doc.document_source) || {};
+      return `
+        <div class="app-doc-row" data-doc-type="${doc.type}">
+          <span class="app-doc-name">
+            ${esc(labelForDocumentType(doc.type))}
+            <span style="font-size:.72rem;color:var(--texte-clair);font-weight:400;"> · ${esc(sourceInfo.label || doc.document_source)}${doc.client_visible ? '' : ' · 🔒 interne'}</span>
+            ${doc.commentaire ? `<br/><span style="font-size:.78rem;color:var(--texte-clair);font-weight:400;">${esc(doc.commentaire)}</span>` : ''}
+            ${doc.statut === 'refuse' && doc.refus_motif ? `<br/><span style="font-size:.78rem;color:#c0392b;font-weight:400;">Motif : ${esc(doc.refus_motif)}</span>` : ''}
+          </span>
+          ${doc.file_name ? `<a href="#" data-download="${doc.storage_path}" style="font-size:.82rem;color:var(--vert-fonce);">${esc(doc.file_name)}</a>` : '<span style="font-size:.8rem;color:var(--texte-clair);">Aucun fichier</span>'}
+          <label class="app-btn app-btn-sm app-btn-outline" style="cursor:pointer;">
+            ${doc.file_name ? 'Remplacer' : 'Déposer'}
+            <input type="file" data-doc-upload="${doc.type}" style="display:none;" />
+          </label>
+          <select data-doc-statut="${doc.type}" data-doc-source="${doc.document_source}" style="padding:6px 10px;border-radius:6px;border:1px solid var(--beige-fonce);">${opt(DOC_STATUTS, doc.statut)}</select>
+          <select data-doc-visible="${doc.type}" style="padding:6px 10px;border-radius:6px;border:1px solid var(--beige-fonce);">
+            <option value="true" ${doc.client_visible ? 'selected' : ''}>Visible client</option>
+            <option value="false" ${!doc.client_visible ? 'selected' : ''}>Interne</option>
+          </select>
+          <button class="app-btn app-btn-sm app-btn-danger" data-doc-delete="${doc.type}" title="Supprimer cette ligne">✕</button>
+        </div>`;
+    }
+
     function render() {
       const reste = dossier.montant_facture != null ? Number(dossier.montant_facture) - Number(dossier.montant_paye || 0) : null;
       const quickActions = buildQuickActions();
@@ -204,17 +228,29 @@
 
       root.innerHTML = `
         <div class="app-card">
-          <h2>${esc(dossier.etablissement)} — <span style="color:var(--or);">${esc(dossier.numero)}</span> <span class="app-badge app-badge-gray">${typeInfo.badge} ${typeInfo.label}</span> ${dossier.source === 'public' ? '<span class="app-badge app-badge-orange">Demande site public</span>' : ''}</h2>
-          ${quickActions.length ? `
+          <h2>${esc(dossier.etablissement)} — <span style="color:var(--or);">${esc(dossier.numero)}</span> <span class="app-badge app-badge-gray">${typeInfo.badge} ${typeInfo.label}</span> ${dossier.source === 'public' ? '<span class="app-badge app-badge-orange">Demande site public</span>' : ''} ${dossier.archived_at ? '<span class="app-badge app-badge-gray">📦 Archivé</span>' : ''}</h2>
           <div id="msgActions"></div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
             ${quickActions.map(a => `<button class="app-btn app-btn-sm ${a.cls}" data-quick-action="${a.id}">${a.label}</button>`).join('')}
+            ${dossier.archived_at
+              ? `<button class="app-btn app-btn-sm app-btn-outline" data-archive-toggle="restore">Restaurer</button>`
+              : `<button class="app-btn app-btn-sm app-btn-outline" data-archive-toggle="archive">Archiver le dossier</button>`}
+            <button class="app-btn app-btn-sm app-btn-danger" id="openDeleteBtn">Supprimer définitivement</button>
           </div>
           <div id="relancePanel" style="display:none;margin-bottom:18px;">
             <textarea id="relanceMessage" rows="3" placeholder="Message de relance (optionnel)" style="width:100%;padding:10px;border:2px solid var(--beige-fonce);border-radius:8px;font-family:inherit;"></textarea>
             <button class="app-btn app-btn-sm" id="sendRelanceBtn" style="margin-top:8px;">Envoyer</button>
           </div>
-          ` : ''}
+          ${deletePanelOpen ? `
+          <div class="app-msg app-msg-error" style="margin-bottom:18px;">
+            <strong>Attention : cette action supprimera définitivement le dossier et toutes les données associées</strong> (documents, paiements, historique, notifications, accès client). Cette action est irréversible.
+            <div style="margin-top:12px;">
+              <label style="display:block;margin-bottom:6px;font-weight:700;">Tapez SUPPRIMER pour confirmer :</label>
+              <input type="text" id="deleteConfirmInput" style="padding:8px 12px;border:2px solid #c0392b;border-radius:6px;max-width:220px;" autocomplete="off" />
+              <button class="app-btn app-btn-sm app-btn-danger" id="confirmDeleteBtn" disabled style="margin-left:8px;">Supprimer définitivement</button>
+              <button class="app-btn app-btn-sm app-btn-outline" id="cancelDeleteBtn" style="margin-left:8px;">Annuler</button>
+            </div>
+          </div>` : ''}
           <div id="msgGeneral"></div>
           <form id="generalForm">
             ${renderGeneralFields()}
@@ -277,16 +313,36 @@
 
         <div class="app-card">
           <h2>Documents</h2>
+          ${(() => { const c = docCompleteness(documents); return c.total ? `<p style="color:var(--texte-clair);font-size:.88rem;margin-bottom:14px;">${c.complete ? '✅' : '⚠️'} ${c.valides}/${c.total} documents requis validés${c.refuses ? ` · ${c.refuses} refusé(s)` : ''}</p>` : ''; })()}
           <div id="msgDocs"></div>
-          ${documentsForType(dossier.client_type).map(dt => {
-            const doc = documents.find(x => x.type === dt.value) || { statut: 'a_fournir', type: dt.value };
-            return `
-            <div class="app-doc-row">
-              <span class="app-doc-name">${dt.label}</span>
-              ${doc.file_name ? `<a href="#" data-download="${doc.storage_path}" style="font-size:.82rem;color:var(--vert-fonce);">${esc(doc.file_name)}</a>` : '<span style="font-size:.8rem;color:var(--texte-clair);">Aucun fichier</span>'}
-              <select data-doc-statut="${dt.value}" style="padding:6px 10px;border-radius:6px;border:1px solid var(--beige-fonce);">${opt(DOC_STATUTS, doc.statut)}</select>
-            </div>`;
-          }).join('')}
+          ${documents.filter(d => d.statut !== 'non_requis').sort((a, b) => a.type.localeCompare(b.type)).map(doc => renderDocRow(doc)).join('') || '<p style="color:var(--texte-clair);font-size:.85rem;">Aucun document.</p>'}
+
+          ${documents.some(d => d.statut === 'non_requis') ? `
+          <p style="margin-top:14px;">
+            <button class="app-btn app-btn-sm app-btn-outline" id="toggleNonRequisBtn">${showNonRequis ? 'Masquer' : 'Afficher'} les documents non requis (${documents.filter(d => d.statut === 'non_requis').length})</button>
+          </p>
+          ${showNonRequis ? documents.filter(d => d.statut === 'non_requis').sort((a, b) => a.type.localeCompare(b.type)).map(doc => renderDocRow(doc)).join('') : ''}
+          ` : ''}
+
+          <h3>Ajouter un document</h3>
+          <div id="msgAddDoc"></div>
+          <form id="addDocForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
+            <div class="app-field" style="margin:0;min-width:200px;"><label>Type</label>
+              <select name="type" required>
+                <option value="">— Choisir —</option>
+                ${ALL_DOCUMENT_TYPES.filter(t => !documents.some(d => d.type === t.value)).map(t => `<option value="${t.value}">${t.label}</option>`).join('')}
+              </select>
+            </div>
+            <div class="app-field" style="margin:0;"><label>Fichier</label><input type="file" name="file" required /></div>
+            <div class="app-field" style="margin:0;"><label>Qui fournit</label>
+              <select name="document_source">${opt(DOCUMENT_SOURCES, 'admin')}</select>
+            </div>
+            <div class="app-field" style="margin:0;"><label>Visibilité</label>
+              <select name="client_visible"><option value="true">Visible par le client</option><option value="false">Interne uniquement</option></select>
+            </div>
+            <div class="app-field" style="margin:0;flex:1;min-width:180px;"><label>Commentaire (facultatif)</label><input type="text" name="commentaire" /></div>
+            <button type="submit" class="app-btn app-btn-sm">Ajouter le document</button>
+          </form>
         </div>
 
         ${dossier.client_type !== 'colony' ? `
@@ -502,12 +558,92 @@
           const statut = sel.value;
           const payload = { statut };
           if (statut === 'valide') { payload.validated_by = session.user.id; payload.validated_at = new Date().toISOString(); }
+          if (statut === 'refuse') {
+            const motif = window.prompt('Motif du refus (obligatoire, sera communiqué au client) :');
+            if (!motif || !motif.trim()) { showMsg('msgDocs', 'Refus annulé : un motif est obligatoire.'); await loadAll(); return; }
+            payload.refus_motif = motif.trim();
+          } else {
+            payload.refus_motif = null;
+          }
           const { error } = await supabase.from('documents').update(payload).eq('dossier_id', dossierId).eq('type', type);
-          if (error) return showMsg('msgDocs', error.message);
+          if (error) { showMsg('msgDocs', error.message); return; }
+          if (statut === 'refuse') {
+            const { data: { session: s2 } } = await supabase.auth.getSession();
+            await fetch('/api/admin/send-relance', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s2.access_token}` },
+              body: JSON.stringify({ dossierId, kind: 'document-refuse', documentType: labelForDocumentType(type), refusMotif: payload.refus_motif }),
+            }).catch(() => {});
+          }
           showMsg('msgDocs', 'Statut mis à jour.', 'success');
           await loadAll();
         });
       });
+
+      document.querySelectorAll('[data-doc-visible]').forEach(sel => {
+        sel.addEventListener('change', async () => {
+          const type = sel.dataset.docVisible;
+          const { error } = await supabase.from('documents').update({ client_visible: sel.value === 'true' }).eq('dossier_id', dossierId).eq('type', type);
+          if (error) return showMsg('msgDocs', error.message);
+          await loadAll();
+        });
+      });
+
+      document.querySelectorAll('[data-doc-delete]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!window.confirm('Supprimer cette ligne de document (et son éventuel fichier) ?')) return;
+          const type = btn.dataset.docDelete;
+          const doc = documents.find(d => d.type === type);
+          if (doc && doc.storage_path) {
+            await supabase.storage.from('documents-dossiers').remove([doc.storage_path]);
+          }
+          const { error } = await supabase.from('documents').delete().eq('dossier_id', dossierId).eq('type', type);
+          if (error) return showMsg('msgDocs', error.message);
+          await supabase.from('dossier_journal').insert({ dossier_id: dossierId, action: 'document_supprime', details: 'Supprimé par l\'admin : ' + type, actor: session.user.id });
+          await loadAll();
+        });
+      });
+
+      document.querySelectorAll('[data-doc-upload]').forEach(input => {
+        input.addEventListener('change', async (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          const type = input.dataset.docUpload;
+          await uploadDocumentFile(type, file);
+        });
+      });
+
+      const addDocForm = document.getElementById('addDocForm');
+      if (addDocForm) {
+        addDocForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const fd = new FormData(addDocForm);
+          const type = fd.get('type');
+          const file = fd.get('file');
+          if (!type || !file || !file.name) { showMsg('msgAddDoc', 'Type et fichier obligatoires.'); return; }
+          try {
+            const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+            const path = `${dossierId}/${type}/${Date.now()}_${safeName}`;
+            const { error: upErr } = await supabase.storage.from('documents-dossiers').upload(path, file, { upsert: true });
+            if (upErr) throw upErr;
+            const { error: insErr } = await supabase.from('documents').insert({
+              dossier_id: dossierId, type, storage_path: path, file_name: file.name, statut: 'recu',
+              document_source: fd.get('document_source'), client_visible: fd.get('client_visible') === 'true',
+              commentaire: fd.get('commentaire') || null,
+            });
+            if (insErr) throw insErr;
+            showMsg('msgAddDoc', 'Document ajouté.', 'success');
+            await maybeSendDocumentEmail(type, fd.get('client_visible') === 'true');
+            await loadAll();
+          } catch (error) {
+            showMsg('msgAddDoc', error.message || 'Échec de l\'ajout.');
+          }
+        });
+      }
+
+      const toggleNonRequisBtn = document.getElementById('toggleNonRequisBtn');
+      if (toggleNonRequisBtn) toggleNonRequisBtn.addEventListener('click', () => { showNonRequis = !showNonRequis; render(); });
+
       document.querySelectorAll('[data-download]').forEach(a => {
         a.addEventListener('click', async (e) => {
           e.preventDefault();
@@ -609,10 +745,66 @@
       });
       const relanceBtn = document.getElementById('sendRelanceBtn');
       if (relanceBtn) relanceBtn.addEventListener('click', onSendRelance);
+
+      document.querySelectorAll('[data-archive-toggle]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const archiving = btn.dataset.archiveToggle === 'archive';
+          const { error } = await supabase.from('dossiers').update({ archived_at: archiving ? new Date().toISOString() : null }).eq('id', dossierId);
+          if (error) return showMsg('msgActions', error.message);
+          await supabase.from('dossier_journal').insert({ dossier_id: dossierId, action: archiving ? 'dossier_archive' : 'dossier_restaure', actor: session.user.id });
+          showMsg('msgActions', archiving ? 'Dossier archivé.' : 'Dossier restauré.', 'success');
+          await loadAll();
+        });
+      });
+
+      const openDeleteBtn = document.getElementById('openDeleteBtn');
+      if (openDeleteBtn) openDeleteBtn.addEventListener('click', () => { deletePanelOpen = true; render(); });
+      const cancelDeleteBtn = document.getElementById('cancelDeleteBtn');
+      if (cancelDeleteBtn) cancelDeleteBtn.addEventListener('click', () => { deletePanelOpen = false; render(); });
+      const deleteConfirmInput = document.getElementById('deleteConfirmInput');
+      const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+      if (deleteConfirmInput && confirmDeleteBtn) {
+        deleteConfirmInput.addEventListener('input', () => {
+          confirmDeleteBtn.disabled = deleteConfirmInput.value.trim() !== 'SUPPRIMER';
+        });
+        confirmDeleteBtn.addEventListener('click', onDeletePermanently);
+      }
+    }
+
+    // Nettoyage récursif du dossier de stockage (convention <dossierId>/<type>/<fichier>) :
+    // supprime tous les fichiers, y compris ceux non rattachés à une ligne "documents"
+    // (ex. pages supplémentaires d'un carnet de vaccination).
+    async function removeAllDossierFiles() {
+      const { data: topLevel } = await supabase.storage.from('documents-dossiers').list(dossierId);
+      for (const entry of topLevel || []) {
+        const subPath = `${dossierId}/${entry.name}`;
+        const { data: subFiles } = await supabase.storage.from('documents-dossiers').list(subPath);
+        if (subFiles && subFiles.length) {
+          await supabase.storage.from('documents-dossiers').remove(subFiles.map(f => `${subPath}/${f.name}`));
+        } else {
+          await supabase.storage.from('documents-dossiers').remove([subPath]);
+        }
+      }
+    }
+
+    async function onDeletePermanently() {
+      const btn = document.getElementById('confirmDeleteBtn');
+      btn.disabled = true;
+      btn.textContent = 'Suppression en cours…';
+      try {
+        await removeAllDossierFiles();
+        const { error } = await supabase.from('dossiers').delete().eq('id', dossierId);
+        if (error) throw error;
+        window.location.href = 'dashboard.html';
+      } catch (error) {
+        showMsg('msgActions', 'Échec de la suppression : ' + error.message);
+        btn.disabled = false;
+        btn.textContent = 'Supprimer définitivement';
+      }
     }
 
     async function onQuickAction(action) {
-      const statutMap = { valider: 'demande_validee', refuser: 'refusee', archiver: 'archivee', devis_envoye: 'devis_envoye' };
+      const statutMap = { valider: 'demande_validee', refuser: 'refusee', devis_envoye: 'devis_envoye' };
       if (action === 'relance') {
         document.getElementById('relancePanel').style.display = 'block';
         return;
@@ -643,6 +835,37 @@
       } catch (error) {
         showMsg('msgActions', error.message);
       }
+    }
+
+    async function uploadDocumentFile(type, file) {
+      try {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const path = `${dossierId}/${type}/${Date.now()}_${safeName}`;
+        const { error: upErr } = await supabase.storage.from('documents-dossiers').upload(path, file, { upsert: true });
+        if (upErr) throw upErr;
+        const { error: updErr } = await supabase.from('documents').update({ storage_path: path, file_name: file.name, statut: 'recu' }).eq('dossier_id', dossierId).eq('type', type);
+        if (updErr) throw updErr;
+        const doc = documents.find(d => d.type === type);
+        showMsg('msgDocs', 'Document mis à jour.', 'success');
+        await maybeSendDocumentEmail(type, doc ? doc.client_visible : true);
+        await loadAll();
+      } catch (error) {
+        showMsg('msgDocs', error.message || 'Échec du dépôt.');
+      }
+    }
+
+    async function maybeSendDocumentEmail(type, clientVisible) {
+      if (!clientVisible || !['devis', 'facture', 'facture_finale'].includes(type)) return;
+      try {
+        const { data: { session: s2 } } = await supabase.auth.getSession();
+        const res = await fetch('/api/admin/send-relance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s2.access_token}` },
+          body: JSON.stringify({ dossierId, kind: 'document-added', documentType: type }),
+        });
+        const json = await res.json();
+        if (json.emailSent) showMsg('msgDocs', 'Document enregistré, e-mail envoyé au client.', 'success');
+      } catch { /* non bloquant */ }
     }
 
     async function createTeacherAccess(email, fullName) {

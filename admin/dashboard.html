@@ -33,10 +33,10 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
-    import { STATUTS, CLIENT_TYPES, labelOf, formatDateFr, formatMontant } from '../lib/appConstants.js';
+    import { STATUTS, CLIENT_TYPES, JOURNAL_LABELS, labelOf, formatDateFr, formatMontant, docCompleteness } from '../lib/appConstants.js';
 
     const root = document.getElementById('appRoot');
-    let supabase, dossiers = [], documentsCount = {}, activeFilter = null, typeFilter = null, searchTerm = '', notifications = [];
+    let supabase, dossiers = [], documentsByDossier = {}, activeFilter = null, typeFilter = null, archiveFilter = 'active', searchTerm = '', notifications = [], recentActivity = [];
 
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -66,16 +66,17 @@
       dossiers = d || [];
 
       const { data: docs } = await supabase.from('documents').select('dossier_id, type, statut');
-      documentsCount = {};
+      documentsByDossier = {};
       (docs || []).forEach(doc => {
-        if (!documentsCount[doc.dossier_id]) documentsCount[doc.dossier_id] = { total: 0, valides: 0 };
-        if (doc.statut !== 'non_requis') documentsCount[doc.dossier_id].total++;
-        if (doc.statut === 'valide') documentsCount[doc.dossier_id].valides++;
+        (documentsByDossier[doc.dossier_id] = documentsByDossier[doc.dossier_id] || []).push(doc);
       });
 
-      const { data: notifs } = await supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(50);
+      const { data: notifs } = await supabase.from('notifications').select('*').eq('audience', 'admin').order('created_at', { ascending: false }).limit(50);
       notifications = notifs || [];
       updateNotifBadge();
+
+      const { data: journal } = await supabase.from('dossier_journal').select('*, dossiers(numero, etablissement)').order('created_at', { ascending: false }).limit(15);
+      recentActivity = journal || [];
 
       render();
     }
@@ -144,24 +145,32 @@
       return hay.includes(term.toLowerCase());
     }
 
+    function matchesArchiveFilter(d) {
+      if (archiveFilter === 'all') return true;
+      if (archiveFilter === 'archived') return !!d.archived_at;
+      return !d.archived_at; // 'active'
+    }
+
     function filteredDossiers() {
-      return dossiers.filter(d => matchesFilter(d, activeFilter) && matchesSearch(d, searchTerm) && (!typeFilter || d.client_type === typeFilter));
+      return dossiers.filter(d => matchesFilter(d, activeFilter) && matchesSearch(d, searchTerm) && (!typeFilter || d.client_type === typeFilter) && matchesArchiveFilter(d));
     }
 
     function buildAlerts() {
-      const acomptesManquants = dossiers.filter(d => matchesFilter(d, 'acomptes_manquants')).length;
-      const devisNonSignes = dossiers.filter(d => ['devis_envoye'].includes(d.statut)).length;
-      const incomplets = dossiers.filter(d => d.statut === 'dossier_incomplet').length;
-      const soldes = dossiers.filter(d => matchesFilter(d, 'soldes')).length;
+      const actifs = dossiers.filter(d => !d.archived_at);
+      const acomptesManquants = actifs.filter(d => matchesFilter(d, 'acomptes_manquants')).length;
+      const devisNonSignes = actifs.filter(d => ['devis_envoye'].includes(d.statut)).length;
+      const incomplets = actifs.filter(d => d.statut === 'dossier_incomplet').length;
+      const soldes = actifs.filter(d => matchesFilter(d, 'soldes')).length;
       const total = acomptesManquants + devisNonSignes + incomplets + soldes;
       return { acomptesManquants, devisNonSignes, incomplets, soldes, total };
     }
 
     function docBadge(dossierId) {
-      const c = documentsCount[dossierId];
-      if (!c || !c.total) return '—';
-      const cls = c.valides === c.total ? 'app-badge-green' : (c.valides === 0 ? 'app-badge-red' : 'app-badge-orange');
-      return `<span class="app-badge ${cls}">${c.valides}/${c.total}</span>`;
+      const c = docCompleteness(documentsByDossier[dossierId] || []);
+      if (!c.total) return '—';
+      if (c.complete) return `<span class="app-badge app-badge-green">✅ ${c.valides}/${c.total}</span>`;
+      if (c.valides === 0) return `<span class="app-badge app-badge-red">❌ ${c.total - c.valides} manquant${c.total - c.valides > 1 ? 's' : ''}</span>`;
+      return `<span class="app-badge app-badge-orange">⚠️ ${c.valides}/${c.total}</span>`;
     }
 
     function typeBadge(clientType) {
@@ -170,7 +179,7 @@
     }
 
     function nouvellesDemandes() {
-      return dossiers.filter(d => d.source === 'public' && d.statut === 'demande_recue');
+      return dossiers.filter(d => d.source === 'public' && d.statut === 'demande_recue' && !d.archived_at);
     }
 
     function demandeSummary(d) {
@@ -200,10 +209,23 @@
               <a class="app-btn app-btn-sm app-btn-outline" href="dossier.html?id=${d.id}">Ouvrir</a>
               <button class="app-btn app-btn-sm" data-demande-action="valider" data-demande-id="${d.id}">Valider</button>
               <button class="app-btn app-btn-sm app-btn-outline" data-demande-action="refuser" data-demande-id="${d.id}">Refuser</button>
-              <button class="app-btn app-btn-sm app-btn-outline" data-demande-action="archiver" data-demande-id="${d.id}">Archiver</button>
+              <button class="app-btn app-btn-sm app-btn-outline" data-archive-toggle="archive" data-dossier-id="${d.id}">Archiver</button>
             </div>
           `).join('')}
         </div>` : ''}
+
+        <div class="app-card">
+          <h2>Activité récente</h2>
+          <ul class="app-todo-list">
+            ${recentActivity.map(a => `
+              <li>
+                <span class="app-todo-dot"></span>
+                ${a.dossiers ? `<a href="dossier.html?id=${a.dossier_id}" style="color:var(--vert-fonce);font-weight:700;">${esc(a.dossiers.etablissement)}</a> — ` : ''}
+                ${esc(JOURNAL_LABELS[a.action] || a.action)}${a.details ? ' : ' + esc(a.details) : ''}
+                <span style="color:var(--texte-clair);font-size:.78rem;"> — ${new Date(a.created_at).toLocaleString('fr-FR')}</span>
+              </li>`).join('') || '<li>Aucune activité récente.</li>'}
+          </ul>
+        </div>
 
         ${alerts.total > 0 ? `
         <div class="app-card">
@@ -220,8 +242,13 @@
           <div class="app-filters">
             <input type="search" id="searchInput" placeholder="Rechercher client, numéro, e-mail, téléphone…" value="${esc(searchTerm)}" style="flex:1;min-width:220px;" />
           </div>
+          <div class="app-filters" id="archiveFilters">
+            <span class="app-chip ${archiveFilter === 'active' ? 'active' : ''}" data-archive-filter="active">Actifs</span>
+            <span class="app-chip ${archiveFilter === 'archived' ? 'active' : ''}" data-archive-filter="archived">Archivés</span>
+            <span class="app-chip ${archiveFilter === 'all' ? 'active' : ''}" data-archive-filter="all">Tous</span>
+          </div>
           <div class="app-filters" id="typeFilters">
-            <span class="app-chip ${!typeFilter ? 'active' : ''}" data-type-filter="">Tous</span>
+            <span class="app-chip ${!typeFilter ? 'active' : ''}" data-type-filter="">Tous types</span>
             ${CLIENT_TYPES.map(t => `<span class="app-chip ${typeFilter === t.value ? 'active' : ''}" data-type-filter="${t.value}">${t.badge} ${t.label}</span>`).join('')}
           </div>
           <div class="app-filters" id="chipFilters">
@@ -249,8 +276,16 @@
                     <td>${formatMontant(d.montant_facture)}</td>
                     <td>${formatMontant(d.montant_paye)}</td>
                     <td>${d.montant_facture != null ? formatMontant(Number(d.montant_facture) - Number(d.montant_paye || 0)) : '—'}</td>
-                    <td><span class="app-badge app-badge-gray">${labelOf(STATUTS, d.statut)}</span></td>
-                    <td><a class="app-btn app-btn-sm app-btn-outline" href="dossier.html?id=${d.id}">Ouvrir</a></td>
+                    <td>
+                      <span class="app-badge app-badge-gray">${labelOf(STATUTS, d.statut)}</span>
+                      ${d.archived_at ? '<span class="app-badge app-badge-gray">📦 Archivé</span>' : ''}
+                    </td>
+                    <td style="white-space:nowrap;">
+                      <a class="app-btn app-btn-sm app-btn-outline" href="dossier.html?id=${d.id}">Ouvrir</a>
+                      ${d.archived_at
+                        ? `<button class="app-btn app-btn-sm app-btn-outline" data-archive-toggle="restore" data-dossier-id="${d.id}">Restaurer</button>`
+                        : `<button class="app-btn app-btn-sm app-btn-outline" data-archive-toggle="archive" data-dossier-id="${d.id}">Archiver</button>`}
+                    </td>
                   </tr>
                 `).join('') || `<tr><td colspan="11" style="text-align:center;padding:30px;">Aucun dossier ne correspond.</td></tr>`}
               </tbody>
@@ -266,11 +301,28 @@
       document.querySelectorAll('#typeFilters .app-chip').forEach(chip => {
         chip.addEventListener('click', () => { typeFilter = chip.dataset.typeFilter || null; render(); });
       });
+      document.querySelectorAll('#archiveFilters .app-chip').forEach(chip => {
+        chip.addEventListener('click', () => { archiveFilter = chip.dataset.archiveFilter; render(); });
+      });
       document.querySelectorAll('[data-demande-action]').forEach(btn => {
         btn.addEventListener('click', async () => {
-          const statutMap = { valider: 'demande_validee', refuser: 'refusee', archiver: 'archivee' };
+          const statutMap = { valider: 'demande_validee', refuser: 'refusee' };
           const { error } = await supabase.from('dossiers').update({ statut: statutMap[btn.dataset.demandeAction] }).eq('id', btn.dataset.demandeId);
           if (!error) await loadAll();
+        });
+      });
+      document.querySelectorAll('[data-archive-toggle]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const archiving = btn.dataset.archiveToggle === 'archive';
+          const payload = { archived_at: archiving ? new Date().toISOString() : null };
+          const { error } = await supabase.from('dossiers').update(payload).eq('id', btn.dataset.dossierId);
+          if (!error) {
+            await supabase.from('dossier_journal').insert({
+              dossier_id: btn.dataset.dossierId,
+              action: archiving ? 'dossier_archive' : 'dossier_restaure',
+            });
+            await loadAll();
+          }
         });
       });
     }

@@ -22,11 +22,15 @@
     <div class="app-logo"><span>🌸</span><span>Les Hortensias — Espace Client</span></div>
     <div class="app-user">
       <span id="userLabel"></span>
+      <button class="app-logout" id="notifBtn">🔔 Notifications <span id="notifBadge"></span></button>
       <button class="app-logout" id="logoutBtn">Déconnexion</button>
     </div>
   </div>
 
-  <div class="app-container" id="appRoot">
+  <div class="app-container" style="padding-bottom:0;">
+    <div id="notifPanel" class="app-card" style="display:none;"></div>
+  </div>
+  <div class="app-container" id="appRoot" style="padding-top:0;">
     <div class="app-loading">Chargement de vos séjours…</div>
   </div>
 
@@ -58,7 +62,54 @@
       supabase.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') window.location.href = 'index.html'; });
 
       await loadSejours();
+      await loadNotifications();
     }
+
+    let notifications = [];
+
+    async function loadNotifications() {
+      const { data } = await supabase.from('notifications').select('*').eq('audience', 'client').order('created_at', { ascending: false }).limit(50);
+      notifications = data || [];
+      const unread = notifications.filter(n => !n.lu).length;
+      document.getElementById('notifBadge').textContent = unread ? `(${unread})` : '';
+    }
+
+    function renderNotifPanel() {
+      const panel = document.getElementById('notifPanel');
+      panel.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h2 style="margin:0;">Notifications</h2>
+          <button class="app-btn app-btn-sm app-btn-outline" id="markAllReadBtn">Tout marquer comme lu</button>
+        </div>
+        <ul class="app-todo-list">
+          ${notifications.map(n => `
+            <li style="cursor:pointer;${n.lu ? 'opacity:.55;' : ''}" data-notif-id="${n.id}" data-notif-dossier="${n.dossier_id || ''}">
+              <span class="app-todo-dot" style="background:${n.lu ? 'var(--beige-fonce)' : 'var(--or)'};"></span>
+              ${esc(n.message)} <span style="color:var(--texte-clair);font-size:.78rem;">— ${new Date(n.created_at).toLocaleString('fr-FR')}</span>
+            </li>`).join('') || '<li>Aucune notification.</li>'}
+        </ul>
+      `;
+      document.getElementById('markAllReadBtn').addEventListener('click', async () => {
+        await supabase.from('notifications').update({ lu: true }).eq('audience', 'client').eq('lu', false);
+        await loadNotifications();
+        renderNotifPanel();
+      });
+      panel.querySelectorAll('[data-notif-id]').forEach(li => {
+        li.addEventListener('click', async () => {
+          await supabase.from('notifications').update({ lu: true }).eq('id', li.dataset.notifId);
+          if (li.dataset.notifDossier) window.location.href = `dossier.html?id=${li.dataset.notifDossier}`;
+          else { await loadNotifications(); renderNotifPanel(); }
+        });
+      });
+    }
+
+    document.getElementById('notifBtn').addEventListener('click', () => {
+      const panel = document.getElementById('notifPanel');
+      const showing = panel.style.display !== 'none';
+      if (showing) { panel.style.display = 'none'; return; }
+      renderNotifPanel();
+      panel.style.display = 'block';
+    });
 
     async function loadSejours() {
       const { data: acces, error } = await supabase
