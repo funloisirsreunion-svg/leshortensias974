@@ -65,7 +65,7 @@
   async function login() {
     pwd = $('pwdInput').value;
     $('error').textContent = '';
-    const res = await authedFetch('/api/admin/list');
+    const res = await authedFetch('/api/admin/blob-manage?action=list');
     if (res.status === 401) {
       $('error').textContent = 'Mot de passe incorrect.';
       return;
@@ -81,7 +81,7 @@
   }
 
   async function refresh() {
-    const res = await authedFetch('/api/admin/list');
+    const res = await authedFetch('/api/admin/blob-manage?action=list');
     if (res.ok) renderList(await res.json());
   }
 
@@ -120,7 +120,7 @@
   }
 
   async function downloadFile(pathname) {
-    const res = await authedFetch('/api/admin/download?pathname=' + encodeURIComponent(pathname));
+    const res = await authedFetch('/api/admin/blob-manage?action=download&pathname=' + encodeURIComponent(pathname));
     if (!res.ok) { alert('Échec du téléchargement.'); return; }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
@@ -135,7 +135,7 @@
 
   async function purge() {
     if (!confirm('Supprimer définitivement tous les dossiers reçus il y a plus de 24 mois ?')) return;
-    const res = await authedFetch('/api/admin/purge', {
+    const res = await authedFetch('/api/admin/blob-manage?action=purge', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ monthsOld: 24 }),
