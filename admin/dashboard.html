@@ -33,10 +33,10 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
-    import { STATUTS, labelOf, formatDateFr, formatMontant } from '../lib/appConstants.js';
+    import { STATUTS, CLIENT_TYPES, labelOf, formatDateFr, formatMontant } from '../lib/appConstants.js';
 
     const root = document.getElementById('appRoot');
-    let supabase, dossiers = [], documentsCount = {}, activeFilter = null, searchTerm = '', notifications = [];
+    let supabase, dossiers = [], documentsCount = {}, activeFilter = null, typeFilter = null, searchTerm = '', notifications = [];
 
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -51,7 +51,6 @@
       if (!profile || profile.role !== 'admin') { await supabase.auth.signOut(); window.location.href = 'index.html'; return; }
       document.getElementById('userLabel').textContent = profile.full_name || profile.email || '';
 
-      // Synchronise profiles.email si une confirmation de changement d'adresse a eu lieu.
       if (profile.email !== session.user.email) {
         await supabase.from('profiles').update({ email: session.user.email }).eq('id', session.user.id);
       }
@@ -135,20 +134,18 @@
         case 'acomptes_manquants': return d.acompte_attendu && (!d.acompte_recu || Number(d.acompte_recu) < Number(d.acompte_attendu));
         case 'incomplets': return d.statut === 'dossier_incomplet';
         case 'soldes': return d.statut === 'solde_attendu' || (d.montant_facture && Number(d.montant_paye || 0) < Number(d.montant_facture));
-        case 'nature': return d.programme === 'nature';
-        case 'volcan': return d.programme === 'volcan';
         default: return true;
       }
     }
 
     function matchesSearch(d, term) {
       if (!term) return true;
-      const hay = `${d.etablissement || ''} ${d.commune || ''} ${d.numero || ''}`.toLowerCase();
+      const hay = `${d.etablissement || ''} ${d.commune || ''} ${d.numero || ''} ${d.structure_nom || ''} ${d.enfant_nom || ''} ${d.enfant_prenom || ''} ${d.contact_nom || ''} ${d.contact_email || ''} ${d.contact_telephone || ''}`.toLowerCase();
       return hay.includes(term.toLowerCase());
     }
 
     function filteredDossiers() {
-      return dossiers.filter(d => matchesFilter(d, activeFilter) && matchesSearch(d, searchTerm));
+      return dossiers.filter(d => matchesFilter(d, activeFilter) && matchesSearch(d, searchTerm) && (!typeFilter || d.client_type === typeFilter));
     }
 
     function buildAlerts() {
@@ -167,8 +164,24 @@
       return `<span class="app-badge ${cls}">${c.valides}/${c.total}</span>`;
     }
 
+    function typeBadge(clientType) {
+      const info = CLIENT_TYPES.find(t => t.value === clientType) || CLIENT_TYPES[0];
+      return `<span class="app-badge app-badge-gray">${info.badge} ${info.label}</span>`;
+    }
+
     function nouvellesDemandes() {
       return dossiers.filter(d => d.source === 'public' && d.statut === 'demande_recue');
+    }
+
+    function demandeSummary(d) {
+      if (d.client_type === 'group') {
+        const total = (d.nb_adultes || 0) + (d.nb_enfants || 0);
+        return `${total || '?'} personnes · ${d.demande_date_arrivee ? formatDateFr(d.demande_date_arrivee) : 'dates non précisées'}`;
+      }
+      if (d.client_type === 'colony') {
+        return `${esc(d.enfant_prenom || '')} ${esc(d.enfant_nom || '')} · ${esc(d.colonie_nom || 'colonie non précisée')}`;
+      }
+      return `${d.programme === 'volcan' ? 'Volcan' : 'Nature'} · ${d.duree ? d.duree + 'j' : '—'} · ${esc(d.periode_souhaitee || 'période non précisée')} · ${d.effectif_prev_eleves ?? '?'} élèves`;
     }
 
     function render() {
@@ -182,7 +195,7 @@
           <h2>${demandes.length} nouvelle${demandes.length > 1 ? 's' : ''} demande${demandes.length > 1 ? 's' : ''} à traiter</h2>
           ${demandes.map(d => `
             <div class="app-doc-row">
-              <span class="app-doc-name">${esc(d.etablissement)} — ${d.programme === 'volcan' ? 'Volcan' : 'Nature'} · ${d.duree ? d.duree + 'j' : '—'} · ${esc(d.periode_souhaitee || 'période non précisée')} · ${d.effectif_prev_eleves ?? '?'} élèves</span>
+              <span class="app-doc-name">${typeBadge(d.client_type)} ${esc(d.etablissement)} — ${demandeSummary(d)}</span>
               <span style="font-size:.78rem;color:var(--texte-clair);">${new Date(d.created_at).toLocaleDateString('fr-FR')}</span>
               <a class="app-btn app-btn-sm app-btn-outline" href="dossier.html?id=${d.id}">Ouvrir</a>
               <button class="app-btn app-btn-sm" data-demande-action="valider" data-demande-id="${d.id}">Valider</button>
@@ -205,10 +218,14 @@
 
         <div class="app-card">
           <div class="app-filters">
-            <input type="search" id="searchInput" placeholder="Rechercher école, commune, numéro…" value="${esc(searchTerm)}" style="flex:1;min-width:220px;" />
+            <input type="search" id="searchInput" placeholder="Rechercher client, numéro, e-mail, téléphone…" value="${esc(searchTerm)}" style="flex:1;min-width:220px;" />
+          </div>
+          <div class="app-filters" id="typeFilters">
+            <span class="app-chip ${!typeFilter ? 'active' : ''}" data-type-filter="">Tous</span>
+            ${CLIENT_TYPES.map(t => `<span class="app-chip ${typeFilter === t.value ? 'active' : ''}" data-type-filter="${t.value}">${t.badge} ${t.label}</span>`).join('')}
           </div>
           <div class="app-filters" id="chipFilters">
-            ${['a_venir', 'en_cours', 'passes', 'annules', 'acomptes_manquants', 'incomplets', 'soldes', 'nature', 'volcan'].map(f => `
+            ${['a_venir', 'en_cours', 'passes', 'annules', 'acomptes_manquants', 'incomplets', 'soldes'].map(f => `
               <span class="app-chip ${activeFilter === f ? 'active' : ''}" data-filter="${f}">${chipLabel(f)}</span>
             `).join('')}
             ${activeFilter ? `<span class="app-chip" data-filter="">✕ Effacer</span>` : ''}
@@ -217,31 +234,25 @@
           <div class="app-table-wrap">
             <table class="app-table">
               <thead><tr>
-                <th>Dossier</th><th>École</th><th>Commune</th><th>Programme</th><th>Durée</th>
-                <th>Dates</th><th>Effectif déf.</th><th>Devis</th><th>Acompte</th><th>Part mairie</th>
-                <th>Documents</th><th>Facturé</th><th>Payé</th><th>Reste</th><th>Statut</th><th></th>
+                <th>Réf</th><th>Type</th><th>Client</th><th>Dates</th>
+                <th>Documents</th><th>Devis</th><th>Facturé</th><th>Payé</th><th>Reste</th><th>Statut</th><th></th>
               </tr></thead>
               <tbody>
                 ${list.map(d => `
                   <tr>
                     <td><a class="row-link" href="dossier.html?id=${d.id}">${esc(d.numero)}</a></td>
+                    <td>${typeBadge(d.client_type)}</td>
                     <td>${esc(d.etablissement)}</td>
-                    <td>${esc(d.commune || '—')}</td>
-                    <td>${d.programme === 'volcan' ? 'Volcan' : d.programme === 'nature' ? 'Nature' : '—'}</td>
-                    <td>${d.duree ? d.duree + 'j' : '—'}</td>
-                    <td>${d.date_confirmee_debut ? formatDateFr(d.date_confirmee_debut) : (d.date_proposee ? formatDateFr(d.date_proposee) + ' (proposée)' : '—')}</td>
-                    <td>${d.effectif_def_eleves ?? '—'}</td>
-                    <td>${formatMontant(d.montant_devis)}</td>
-                    <td>${formatMontant(d.acompte_recu)} / ${formatMontant(d.acompte_attendu)}</td>
-                    <td>${formatMontant(d.part_mairie_recue)} / ${formatMontant(d.part_mairie_prevue)}</td>
+                    <td>${d.date_confirmee_debut ? formatDateFr(d.date_confirmee_debut) : (d.date_proposee ? formatDateFr(d.date_proposee) + ' (proposée)' : (d.demande_date_arrivee ? formatDateFr(d.demande_date_arrivee) + ' (demandée)' : '—'))}</td>
                     <td>${docBadge(d.id)}</td>
+                    <td>${formatMontant(d.montant_devis)}</td>
                     <td>${formatMontant(d.montant_facture)}</td>
                     <td>${formatMontant(d.montant_paye)}</td>
                     <td>${d.montant_facture != null ? formatMontant(Number(d.montant_facture) - Number(d.montant_paye || 0)) : '—'}</td>
                     <td><span class="app-badge app-badge-gray">${labelOf(STATUTS, d.statut)}</span></td>
                     <td><a class="app-btn app-btn-sm app-btn-outline" href="dossier.html?id=${d.id}">Ouvrir</a></td>
                   </tr>
-                `).join('') || `<tr><td colspan="16" style="text-align:center;padding:30px;">Aucun dossier ne correspond.</td></tr>`}
+                `).join('') || `<tr><td colspan="11" style="text-align:center;padding:30px;">Aucun dossier ne correspond.</td></tr>`}
               </tbody>
             </table>
           </div>
@@ -251,6 +262,9 @@
       document.getElementById('searchInput').addEventListener('input', (e) => { searchTerm = e.target.value; render(); });
       document.querySelectorAll('#chipFilters .app-chip').forEach(chip => {
         chip.addEventListener('click', () => { activeFilter = chip.dataset.filter || null; render(); });
+      });
+      document.querySelectorAll('#typeFilters .app-chip').forEach(chip => {
+        chip.addEventListener('click', () => { typeFilter = chip.dataset.typeFilter || null; render(); });
       });
       document.querySelectorAll('[data-demande-action]').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -265,7 +279,6 @@
       return {
         a_venir: 'À venir', en_cours: 'En cours', passes: 'Passés', annules: 'Annulés',
         acomptes_manquants: 'Acomptes manquants', incomplets: 'Dossiers incomplets', soldes: 'Soldes en attente',
-        nature: 'Nature', volcan: 'Volcan',
       }[f];
     }
 

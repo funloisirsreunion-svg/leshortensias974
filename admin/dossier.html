@@ -27,7 +27,7 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
-    import { STATUTS, DOCUMENTS, DOC_STATUTS, REGIMES, NIVEAUX, JOURNAL_LABELS, ACCESS_STATUTS, labelOf, formatDateFr, formatMontant } from '../lib/appConstants.js';
+    import { STATUTS, DOC_STATUTS, REGIMES, NIVEAUX, JOURNAL_LABELS, ACCESS_STATUTS, CLIENT_TYPES, STRUCTURE_TYPES, FORMULES, documentsForType, labelOf, formatDateFr, formatMontant } from '../lib/appConstants.js';
 
     const params = new URLSearchParams(window.location.search);
     const dossierId = params.get('id');
@@ -104,25 +104,76 @@
       return actions;
     }
 
-    function render() {
-      const reste = dossier.montant_facture != null ? Number(dossier.montant_facture) - Number(dossier.montant_paye || 0) : null;
-      const quickActions = buildQuickActions();
+    function renderGeneralFields() {
+      const ct = dossier.client_type;
+      const commonStatutDates = `
+            <div class="app-grid-3">
+              <div class="app-field"><label>Statut</label><select name="statut">${opt(STATUTS, dossier.statut)}</select></div>
+              <div class="app-field"><label>Date proposée</label><input type="date" name="date_proposee" value="${dossier.date_proposee||''}" /></div>
+              <div class="app-field"><label>Date confirmée — arrivée</label><input type="date" name="date_confirmee_debut" value="${dossier.date_confirmee_debut||''}" /></div>
+            </div>
+            <div class="app-field" style="max-width:240px;"><label>Date confirmée — départ</label><input type="date" name="date_confirmee_fin" value="${dossier.date_confirmee_fin||''}" /></div>`;
 
-      root.innerHTML = `
-        <div class="app-card">
-          <h2>${esc(dossier.etablissement)} — <span style="color:var(--or);">${esc(dossier.numero)}</span> ${dossier.source === 'public' ? '<span class="app-badge app-badge-orange">Demande site public</span>' : ''}</h2>
-          ${quickActions.length ? `
-          <div id="msgActions"></div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
-            ${quickActions.map(a => `<button class="app-btn app-btn-sm ${a.cls}" data-quick-action="${a.id}">${a.label}</button>`).join('')}
-          </div>
-          <div id="relancePanel" style="display:none;margin-bottom:18px;">
-            <textarea id="relanceMessage" rows="3" placeholder="Message de relance (optionnel)" style="width:100%;padding:10px;border:2px solid var(--beige-fonce);border-radius:8px;font-family:inherit;"></textarea>
-            <button class="app-btn app-btn-sm" id="sendRelanceBtn" style="margin-top:8px;">Envoyer</button>
-          </div>
-          ` : ''}
-          <div id="msgGeneral"></div>
-          <form id="generalForm">
+      if (ct === 'group') {
+        return `
+            <div class="app-grid-2">
+              <div class="app-field"><label>Nom de la structure</label><input type="text" name="structure_nom" value="${esc(dossier.structure_nom)}" required /></div>
+              <div class="app-field"><label>Type de structure</label><select name="structure_type"><option value="">—</option>${opt(STRUCTURE_TYPES, dossier.structure_type)}</select></div>
+            </div>
+            <div class="app-grid-3">
+              <div class="app-field"><label>Contact (nom)</label><input type="text" name="contact_nom" value="${esc(dossier.contact_nom)}" /></div>
+              <div class="app-field"><label>Contact (prénom)</label><input type="text" name="contact_prenom" value="${esc(dossier.contact_prenom)}" /></div>
+              <div class="app-field"><label>Fonction</label><input type="text" name="contact_fonction" value="${esc(dossier.contact_fonction)}" /></div>
+            </div>
+            <div class="app-grid-2">
+              <div class="app-field"><label>Téléphone</label><input type="text" name="contact_telephone" value="${esc(dossier.contact_telephone)}" /></div>
+              <div class="app-field"><label>E-mail</label><input type="email" name="contact_email" value="${esc(dossier.contact_email)}" /></div>
+            </div>
+            <h3>Demande initiale (indicative — ne confirme jamais une réservation)</h3>
+            <div class="app-grid-2">
+              <div class="app-field"><label>Date d'arrivée demandée</label><input type="date" name="demande_date_arrivee" value="${dossier.demande_date_arrivee||''}" /></div>
+              <div class="app-field"><label>Heure d'arrivée</label><input type="time" name="demande_heure_arrivee" value="${esc(dossier.demande_heure_arrivee)}" /></div>
+            </div>
+            <div class="app-grid-2">
+              <div class="app-field"><label>Date de départ demandée</label><input type="date" name="demande_date_depart" value="${dossier.demande_date_depart||''}" /></div>
+              <div class="app-field"><label>Heure de départ</label><input type="time" name="demande_heure_depart" value="${esc(dossier.demande_heure_depart)}" /></div>
+            </div>
+            <div class="app-field"><label>Formule</label><select name="formule"><option value="">—</option>${opt(FORMULES, dossier.formule)}</select></div>
+            <h3>Dates et statut confirmés par Fun Loisirs</h3>
+            ${commonStatutDates}`;
+      }
+
+      if (ct === 'colony') {
+        return `
+            <div class="app-grid-2">
+              <div class="app-field"><label>Prénom de l'enfant</label><input type="text" name="enfant_prenom" value="${esc(dossier.enfant_prenom)}" required /></div>
+              <div class="app-field"><label>Nom de l'enfant</label><input type="text" name="enfant_nom" value="${esc(dossier.enfant_nom)}" required /></div>
+            </div>
+            <div class="app-grid-2">
+              <div class="app-field"><label>Date de naissance</label><input type="date" name="enfant_date_naissance" value="${dossier.enfant_date_naissance||''}" /></div>
+              <div class="app-field"><label>Sexe</label><select name="enfant_sexe"><option value="">—</option><option value="fille" ${dossier.enfant_sexe==='fille'?'selected':''}>Fille</option><option value="garcon" ${dossier.enfant_sexe==='garcon'?'selected':''}>Garçon</option></select></div>
+            </div>
+            <div class="app-field"><label>Colonie concernée</label><input type="text" name="colonie_nom" value="${esc(dossier.colonie_nom)}" /></div>
+            <div class="app-grid-2">
+              <div class="app-field"><label>Responsable légal (nom)</label><input type="text" name="contact_nom" value="${esc(dossier.contact_nom)}" /></div>
+              <div class="app-field"><label>Téléphone</label><input type="text" name="contact_telephone" value="${esc(dossier.contact_telephone)}" /></div>
+            </div>
+            <div class="app-field"><label>E-mail</label><input type="email" name="contact_email" value="${esc(dossier.contact_email)}" /></div>
+            <div class="app-grid-3">
+              <div class="app-field"><label>Bénéficiaire CAF/VACAF</label><select name="beneficiaire_vacaf"><option value="">—</option><option value="true" ${dossier.beneficiaire_vacaf===true?'selected':''}>Oui</option><option value="false" ${dossier.beneficiaire_vacaf===false?'selected':''}>Non</option></select></div>
+              <div class="app-field"><label>N° allocataire</label><input type="text" name="numero_allocataire" value="${esc(dossier.numero_allocataire)}" /></div>
+              <div class="app-field"><label>Tarif colonie (€)</label><input type="number" step="0.01" name="tarif_colonie" value="${dossier.tarif_colonie ?? ''}" /></div>
+            </div>
+            <div class="app-grid-2">
+              <div class="app-field"><label>Autorisation partage privé (familles)</label><select name="autorisation_partage_prive"><option value="">—</option><option value="true" ${dossier.autorisation_partage_prive===true?'selected':''}>Oui</option><option value="false" ${dossier.autorisation_partage_prive===false?'selected':''}>Non</option></select></div>
+              <div class="app-field"><label>Autorisation communication publique</label><select name="autorisation_communication_publique"><option value="">—</option><option value="true" ${dossier.autorisation_communication_publique===true?'selected':''}>Oui</option><option value="false" ${dossier.autorisation_communication_publique===false?'selected':''}>Non</option></select></div>
+            </div>
+            <h3>Statut du dossier</h3>
+            <div class="app-field"><label>Statut</label><select name="statut">${opt(STATUTS, dossier.statut)}</select></div>`;
+      }
+
+      // school (par défaut)
+      return `
             <div class="app-grid-2">
               <div class="app-field"><label>Établissement</label><input type="text" name="etablissement" value="${esc(dossier.etablissement)}" required /></div>
               <div class="app-field"><label>Commune</label><input type="text" name="commune" value="${esc(dossier.commune)}" /></div>
@@ -138,13 +189,36 @@
               <div class="app-field"><label>Durée</label><select name="duree"><option value="">—</option>${opt([{value:'3',label:'3 jours'},{value:'4',label:'4 jours'},{value:'5',label:'5 jours'}], String(dossier.duree||''))}</select></div>
               <div class="app-field"><label>Statut</label><select name="statut">${opt(STATUTS, dossier.statut)}</select></div>
             </div>
-            <div class="app-field"><label>Période souhaitée (enseignant)</label><input type="text" name="periode_souhaitee" value="${esc(dossier.periode_souhaitee)}" readonly style="background:var(--gris-clair);" /></div>
+            <div class="app-field"><label>Période souhaitée (client)</label><input type="text" name="periode_souhaitee" value="${esc(dossier.periode_souhaitee)}" readonly style="background:var(--gris-clair);" /></div>
             <div class="app-grid-3">
               <div class="app-field"><label>Date proposée</label><input type="date" name="date_proposee" value="${dossier.date_proposee||''}" /></div>
               <div class="app-field"><label>Date confirmée — arrivée</label><input type="date" name="date_confirmee_debut" value="${dossier.date_confirmee_debut||''}" /></div>
               <div class="app-field"><label>Date confirmée — départ</label><input type="date" name="date_confirmee_fin" value="${dossier.date_confirmee_fin||''}" /></div>
-            </div>
-            <button type="submit" class="app-btn">Enregistrer</button>
+            </div>`;
+    }
+
+    function render() {
+      const reste = dossier.montant_facture != null ? Number(dossier.montant_facture) - Number(dossier.montant_paye || 0) : null;
+      const quickActions = buildQuickActions();
+      const typeInfo = CLIENT_TYPES.find(t => t.value === dossier.client_type) || CLIENT_TYPES[0];
+
+      root.innerHTML = `
+        <div class="app-card">
+          <h2>${esc(dossier.etablissement)} — <span style="color:var(--or);">${esc(dossier.numero)}</span> <span class="app-badge app-badge-gray">${typeInfo.badge} ${typeInfo.label}</span> ${dossier.source === 'public' ? '<span class="app-badge app-badge-orange">Demande site public</span>' : ''}</h2>
+          ${quickActions.length ? `
+          <div id="msgActions"></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
+            ${quickActions.map(a => `<button class="app-btn app-btn-sm ${a.cls}" data-quick-action="${a.id}">${a.label}</button>`).join('')}
+          </div>
+          <div id="relancePanel" style="display:none;margin-bottom:18px;">
+            <textarea id="relanceMessage" rows="3" placeholder="Message de relance (optionnel)" style="width:100%;padding:10px;border:2px solid var(--beige-fonce);border-radius:8px;font-family:inherit;"></textarea>
+            <button class="app-btn app-btn-sm" id="sendRelanceBtn" style="margin-top:8px;">Envoyer</button>
+          </div>
+          ` : ''}
+          <div id="msgGeneral"></div>
+          <form id="generalForm">
+            ${renderGeneralFields()}
+            <button type="submit" class="app-btn" style="margin-top:12px;">Enregistrer</button>
           </form>
         </div>
 
@@ -159,9 +233,11 @@
             </div>
             <div class="app-grid-3">
               <div class="app-field"><label>Date acompte</label><input type="date" name="date_acompte" value="${dossier.date_acompte||''}" /></div>
+              ${dossier.client_type === 'school' ? `
               <div class="app-field"><label>Part mairie prévue (€)</label><input type="number" step="0.01" name="part_mairie_prevue" value="${dossier.part_mairie_prevue ?? ''}" /></div>
-              <div class="app-field"><label>Part mairie reçue (€)</label><input type="number" step="0.01" name="part_mairie_recue" value="${dossier.part_mairie_recue ?? ''}" /></div>
+              <div class="app-field"><label>Part mairie reçue (€)</label><input type="number" step="0.01" name="part_mairie_recue" value="${dossier.part_mairie_recue ?? ''}" /></div>` : ''}
             </div>
+            ${dossier.client_type === 'group' ? `<div class="app-field" style="max-width:240px;"><label>Estimation indicative (€)</label><input type="number" step="0.01" name="estimation_montant" value="${dossier.estimation_montant ?? ''}" /></div>` : ''}
             <div class="app-field" style="max-width:240px;"><label>Montant facturé (€)</label><input type="number" step="0.01" name="montant_facture" value="${dossier.montant_facture ?? ''}" /></div>
             <button type="submit" class="app-btn">Enregistrer</button>
           </form>
@@ -202,7 +278,7 @@
         <div class="app-card">
           <h2>Documents</h2>
           <div id="msgDocs"></div>
-          ${DOCUMENTS.map(dt => {
+          ${documentsForType(dossier.client_type).map(dt => {
             const doc = documents.find(x => x.type === dt.value) || { statut: 'a_fournir', type: dt.value };
             return `
             <div class="app-doc-row">
@@ -213,10 +289,12 @@
           }).join('')}
         </div>
 
+        ${dossier.client_type !== 'colony' ? `
         <div class="app-card">
-          <h2>Effectifs, niveaux &amp; régimes alimentaires</h2>
+          <h2>${dossier.client_type === 'group' ? 'Effectifs, besoins & régimes alimentaires' : 'Effectifs, niveaux & régimes alimentaires'}</h2>
           <div id="msgEffectifs"></div>
           <form id="effectifsForm">
+            ${dossier.client_type === 'school' ? `
             <h3>Niveaux</h3>
             <div class="app-grid-3">
               ${NIVEAUX.map(n => `<div class="app-field"><label>${n.label}</label><input type="number" min="0" name="niveau_${n.key}" value="${(dossier.niveaux && dossier.niveaux[n.key]) || 0}" /></div>`).join('')}
@@ -232,7 +310,14 @@
               <div class="app-field"><label>Élèves</label><input type="number" min="0" name="effectif_def_eleves" value="${dossier.effectif_def_eleves ?? ''}" /></div>
               <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_def_profs" value="${dossier.effectif_def_profs ?? ''}" /></div>
               <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_def_accompagnateurs" value="${dossier.effectif_def_accompagnateurs ?? ''}" /></div>
+            </div>` : `
+            <h3>Effectifs</h3>
+            <div class="app-grid-2">
+              <div class="app-field"><label>Nombre d'adultes</label><input type="number" min="0" name="nb_adultes" value="${dossier.nb_adultes ?? ''}" /></div>
+              <div class="app-field"><label>Nombre d'enfants</label><input type="number" min="0" name="nb_enfants" value="${dossier.nb_enfants ?? ''}" /></div>
             </div>
+            <div class="app-field"><label>Besoins particuliers (salle, matériel, allergies…)</label><textarea name="besoins_particuliers" rows="2">${esc(dossier.besoins_particuliers)}</textarea></div>
+            `}
             <div class="app-field"><label>Remarques alimentaires</label><textarea name="remarques_alimentaires" rows="2">${esc(dossier.remarques_alimentaires)}</textarea></div>
             <button type="submit" class="app-btn">Enregistrer</button>
           </form>
@@ -246,7 +331,7 @@
             </div>
             <button type="submit" class="app-btn">Enregistrer les régimes</button>
           </form>
-        </div>
+        </div>` : ''}
 
         <div class="app-card">
           <h2>Accès client</h2>
@@ -291,20 +376,56 @@
       document.getElementById('generalForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const fd = new FormData(e.target);
-        const payload = {
-          etablissement: fd.get('etablissement'),
-          commune: fd.get('commune') || null,
-          adresse: fd.get('adresse') || null,
-          contact_nom: fd.get('contact_nom') || null,
-          contact_telephone: fd.get('contact_telephone') || null,
-          contact_email: fd.get('contact_email') || null,
-          programme: fd.get('programme') || null,
-          duree: fd.get('duree') ? Number(fd.get('duree')) : null,
+        const g = (k) => fd.get(k) || null;
+        const gBool = (k) => (fd.has(k) && fd.get(k) !== '' ? fd.get(k) === 'true' : null);
+        let payload = {
           statut: fd.get('statut'),
-          date_proposee: fd.get('date_proposee') || null,
-          date_confirmee_debut: fd.get('date_confirmee_debut') || null,
-          date_confirmee_fin: fd.get('date_confirmee_fin') || null,
+          date_proposee: g('date_proposee'),
+          date_confirmee_debut: g('date_confirmee_debut'),
+          date_confirmee_fin: g('date_confirmee_fin'),
+          contact_nom: g('contact_nom'),
+          contact_telephone: g('contact_telephone'),
+          contact_email: g('contact_email'),
         };
+        if (dossier.client_type === 'school') {
+          payload = {
+            ...payload,
+            etablissement: fd.get('etablissement'),
+            commune: g('commune'),
+            adresse: g('adresse'),
+            programme: g('programme'),
+            duree: fd.get('duree') ? Number(fd.get('duree')) : null,
+          };
+        } else if (dossier.client_type === 'group') {
+          payload = {
+            ...payload,
+            etablissement: fd.get('structure_nom'),
+            structure_nom: fd.get('structure_nom'),
+            structure_type: g('structure_type'),
+            contact_prenom: g('contact_prenom'),
+            contact_fonction: g('contact_fonction'),
+            demande_date_arrivee: g('demande_date_arrivee'),
+            demande_heure_arrivee: g('demande_heure_arrivee'),
+            demande_date_depart: g('demande_date_depart'),
+            demande_heure_depart: g('demande_heure_depart'),
+            formule: g('formule'),
+          };
+        } else {
+          payload = {
+            ...payload,
+            etablissement: `${fd.get('enfant_prenom')} ${fd.get('enfant_nom')}`,
+            enfant_nom: fd.get('enfant_nom'),
+            enfant_prenom: fd.get('enfant_prenom'),
+            enfant_date_naissance: g('enfant_date_naissance'),
+            enfant_sexe: g('enfant_sexe'),
+            colonie_nom: g('colonie_nom'),
+            beneficiaire_vacaf: gBool('beneficiaire_vacaf'),
+            numero_allocataire: g('numero_allocataire'),
+            tarif_colonie: fd.get('tarif_colonie') ? Number(fd.get('tarif_colonie')) : null,
+            autorisation_partage_prive: gBool('autorisation_partage_prive'),
+            autorisation_communication_publique: gBool('autorisation_communication_publique'),
+          };
+        }
         const { error } = await supabase.from('dossiers').update(payload).eq('id', dossierId);
         if (error) return showMsg('msgGeneral', error.message);
         showMsg('msgGeneral', 'Enregistré.', 'success');
@@ -320,10 +441,15 @@
           acompte_attendu: num(fd.get('acompte_attendu')),
           acompte_recu: num(fd.get('acompte_recu')),
           date_acompte: fd.get('date_acompte') || null,
-          part_mairie_prevue: num(fd.get('part_mairie_prevue')),
-          part_mairie_recue: num(fd.get('part_mairie_recue')),
           montant_facture: num(fd.get('montant_facture')),
         };
+        if (dossier.client_type === 'school') {
+          payload.part_mairie_prevue = num(fd.get('part_mairie_prevue'));
+          payload.part_mairie_recue = num(fd.get('part_mairie_recue'));
+        }
+        if (dossier.client_type === 'group' && fd.has('estimation_montant')) {
+          payload.estimation_montant = num(fd.get('estimation_montant'));
+        }
         const { error } = await supabase.from('dossiers').update(payload).eq('id', dossierId);
         if (error) return showMsg('msgFinance', error.message);
         showMsg('msgFinance', 'Enregistré.', 'success');
@@ -393,40 +519,56 @@
         });
       });
 
-      document.getElementById('effectifsForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        const niveaux = {};
-        NIVEAUX.forEach(n => { niveaux[n.key] = Number(fd.get(`niveau_${n.key}`)) || 0; });
-        const payload = {
-          niveaux,
-          effectif_prev_eleves: fd.get('effectif_prev_eleves') ? Number(fd.get('effectif_prev_eleves')) : null,
-          effectif_prev_profs: fd.get('effectif_prev_profs') ? Number(fd.get('effectif_prev_profs')) : null,
-          effectif_prev_accompagnateurs: fd.get('effectif_prev_accompagnateurs') ? Number(fd.get('effectif_prev_accompagnateurs')) : null,
-          effectif_def_eleves: fd.get('effectif_def_eleves') ? Number(fd.get('effectif_def_eleves')) : null,
-          effectif_def_profs: fd.get('effectif_def_profs') ? Number(fd.get('effectif_def_profs')) : null,
-          effectif_def_accompagnateurs: fd.get('effectif_def_accompagnateurs') ? Number(fd.get('effectif_def_accompagnateurs')) : null,
-          remarques_alimentaires: fd.get('remarques_alimentaires') || null,
-        };
-        const { error } = await supabase.from('dossiers').update(payload).eq('id', dossierId);
-        if (error) return showMsg('msgEffectifs', error.message);
-        showMsg('msgEffectifs', 'Enregistré.', 'success');
-        await loadAll();
-      });
-
-      document.getElementById('regimesForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const fd = new FormData(e.target);
-        try {
-          for (const r of REGIMES) {
-            const nombre = Number(fd.get(`regime_${r.value}`)) || 0;
-            const { error } = await supabase.from('regimes_alimentaires').update({ nombre }).eq('dossier_id', dossierId).eq('type', r.value);
-            if (error) throw error;
+      const effectifsForm = document.getElementById('effectifsForm');
+      if (effectifsForm) {
+        effectifsForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const fd = new FormData(e.target);
+          let payload = { remarques_alimentaires: fd.get('remarques_alimentaires') || null };
+          if (dossier.client_type === 'school') {
+            const niveaux = {};
+            NIVEAUX.forEach(n => { niveaux[n.key] = Number(fd.get(`niveau_${n.key}`)) || 0; });
+            payload = {
+              ...payload,
+              niveaux,
+              effectif_prev_eleves: fd.get('effectif_prev_eleves') ? Number(fd.get('effectif_prev_eleves')) : null,
+              effectif_prev_profs: fd.get('effectif_prev_profs') ? Number(fd.get('effectif_prev_profs')) : null,
+              effectif_prev_accompagnateurs: fd.get('effectif_prev_accompagnateurs') ? Number(fd.get('effectif_prev_accompagnateurs')) : null,
+              effectif_def_eleves: fd.get('effectif_def_eleves') ? Number(fd.get('effectif_def_eleves')) : null,
+              effectif_def_profs: fd.get('effectif_def_profs') ? Number(fd.get('effectif_def_profs')) : null,
+              effectif_def_accompagnateurs: fd.get('effectif_def_accompagnateurs') ? Number(fd.get('effectif_def_accompagnateurs')) : null,
+            };
+          } else if (dossier.client_type === 'group') {
+            payload = {
+              ...payload,
+              nb_adultes: fd.get('nb_adultes') ? Number(fd.get('nb_adultes')) : null,
+              nb_enfants: fd.get('nb_enfants') ? Number(fd.get('nb_enfants')) : null,
+              besoins_particuliers: fd.get('besoins_particuliers') || null,
+            };
           }
-          showMsg('msgEffectifs', 'Régimes enregistrés.', 'success');
+          const { error } = await supabase.from('dossiers').update(payload).eq('id', dossierId);
+          if (error) return showMsg('msgEffectifs', error.message);
+          showMsg('msgEffectifs', 'Enregistré.', 'success');
           await loadAll();
-        } catch (error) { showMsg('msgEffectifs', error.message); }
-      });
+        });
+      }
+
+      const regimesForm = document.getElementById('regimesForm');
+      if (regimesForm) {
+        regimesForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const fd = new FormData(e.target);
+          try {
+            for (const r of REGIMES) {
+              const nombre = Number(fd.get(`regime_${r.value}`)) || 0;
+              const { error } = await supabase.from('regimes_alimentaires').update({ nombre }).eq('dossier_id', dossierId).eq('type', r.value);
+              if (error) throw error;
+            }
+            showMsg('msgEffectifs', 'Régimes enregistrés.', 'success');
+            await loadAll();
+          } catch (error) { showMsg('msgEffectifs', error.message); }
+        });
+      }
 
       const teacherForm = document.getElementById('teacherForm');
       if (teacherForm) {

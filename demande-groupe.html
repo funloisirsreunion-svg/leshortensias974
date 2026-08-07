@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Demande de devis – Groupe Indépendant – Les Hortensias, La Réunion</title>
+  <meta name="description" content="Demandez un devis pour l'hébergement et la restauration de votre groupe au Centre Les Hortensias, La Plaine-des-Palmistes, La Réunion." />
+  <link rel="canonical" href="https://www.leshortensias974.fr/demande-groupe.html" />
+  <meta name="robots" content="noindex" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌸</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="app.css" />
+  <style>
+    .insc-classe-wrap { max-width:760px; margin:0 auto; }
+    .insc-classe-form { background:var(--blanc); border-radius:var(--radius); box-shadow:var(--ombre); padding:48px; }
+    @media(max-width:600px){ .insc-classe-form { padding:24px; } }
+    .form-section { margin-bottom:36px; padding-bottom:36px; border-bottom:1px solid var(--beige-fonce); }
+    .form-section:last-of-type { border-bottom:none; margin-bottom:0; padding-bottom:0; }
+    .form-section-title { font-family:'Playfair Display',serif; font-size:1.15rem; color:var(--vert-fonce); margin-bottom:20px; display:flex; align-items:center; gap:10px; }
+    .prog-radio-group { display:flex; gap:16px; margin-top:6px; flex-wrap:wrap; }
+    .prog-radio-card { flex:1; min-width:150px; cursor:pointer; }
+    .prog-radio-card input[type=radio] { display:none; }
+    .prog-radio-inner { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:18px 14px; border-radius:var(--radius); border:2px solid var(--beige-fonce); background:var(--gris-clair); transition:var(--transition); text-align:center; }
+    .prog-radio-label { font-weight:700; font-size:.9rem; color:var(--texte); }
+    .prog-radio-card input:checked + .prog-radio-inner { border-color:var(--vert-fonce); background:var(--beige-fonce); box-shadow:0 0 0 4px rgba(45,90,39,.1); }
+    .prog-radio-card input:checked + .prog-radio-inner .prog-radio-label { color:var(--vert-fonce); }
+    .checkboxes-group { display:flex; flex-wrap:wrap; gap:12px; margin-top:6px; }
+    .checkbox-chip { display:flex; align-items:center; gap:8px; background:var(--gris-clair); border:2px solid var(--beige-fonce); border-radius:var(--radius-sm); padding:10px 16px; cursor:pointer; transition:var(--transition); font-size:.9rem; font-weight:600; }
+    .checkbox-chip input[type=checkbox] { accent-color:var(--vert-fonce); width:16px; height:16px; }
+    .checkbox-chip:has(input:checked) { background:var(--beige-fonce); border-color:var(--vert-fonce); color:var(--vert-fonce); }
+    .cert-group { display:flex; align-items:flex-start; gap:12px; margin-bottom:24px; }
+    .cert-group input[type=checkbox] { margin-top:3px; accent-color:var(--vert-fonce); width:18px; height:18px; flex-shrink:0; }
+    .cert-group label { font-size:.92rem; color:var(--texte); line-height:1.5; }
+    .submit-note { text-align:center; margin-top:14px; font-size:.85rem; color:var(--texte-clair); }
+
+    .estimateur-card { background:linear-gradient(135deg,var(--vert-fonce),#3d7a4d); border-radius:var(--radius); padding:32px 36px; margin:0 0 32px; color:var(--blanc); box-shadow:0 8px 32px rgba(45,90,39,.3); display:none; }
+    .estimateur-header { display:flex; align-items:center; gap:12px; margin-bottom:20px; }
+    .estimateur-icon { font-size:1.8rem; }
+    .estimateur-title { font-family:'Playfair Display',serif; font-size:1.1rem; font-weight:700; opacity:.9; }
+    .estimateur-montant { font-family:'Playfair Display',serif; font-size:3rem; font-weight:700; color:var(--or-clair); line-height:1; margin-bottom:4px; }
+    .estimateur-ttc { font-size:.85rem; opacity:.75; margin-bottom:20px; }
+    .est-detail { display:flex; flex-direction:column; gap:8px; border-top:1px solid rgba(255,255,255,.2); padding-top:16px; margin-bottom:16px; }
+    .est-line { display:flex; justify-content:space-between; align-items:center; font-size:.88rem; }
+    .est-line span:first-child { opacity:.85; }
+    .est-line span:last-child { font-weight:700; }
+    .estimateur-note { font-size:.78rem; opacity:.8; line-height:1.5; border-top:1px solid rgba(255,255,255,.15); padding-top:12px; font-weight:600; }
+  </style>
+</head>
+<body>
+
+  <nav id="navbar">
+    <div class="nav-container">
+      <a href="index.html" class="nav-logo"><span class="logo-icon">🌸</span><span class="logo-text">Les Hortensias</span></a>
+      <button class="nav-toggle" id="navToggle" aria-label="Menu"><span></span><span></span><span></span></button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="index.html">Accueil</a></li>
+        <li class="has-dropdown">
+          <a href="#" class="dropdown-trigger">Nos séjours <span class="dropdown-arrow">▾</span></a>
+          <ul class="dropdown-menu">
+            <li><a href="colonies.html">🏕️ Colonies (6-14 ans)</a></li>
+            <li><a href="classe-volcan-nature.html">🌋 Classes Volcan &amp; Nature</a></li>
+            <li><a href="groupes-independants.html">🏨 Groupes Indépendants</a></li>
+            <li><a href="erasmus.html">🌍 Séjours Erasmus+</a></li>
+          </ul>
+        </li>
+        <li><a href="contact.html">Contact</a></li>
+        <li><a href="espace-client/index.html">🔒 Espace Client</a></li>
+        <li><a href="tel:+262692365838" class="nav-cta">📞 06 92 36 58 38</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <div class="page-hero" style="background-image:linear-gradient(135deg,rgba(45,90,39,.85) 0%,rgba(74,124,89,.7) 100%),url('images/centre-facade.jpg');">
+    <div class="page-hero-content">
+      <span class="hero-badge">Groupe Indépendant</span>
+      <h1>Demande de devis</h1>
+      <p>Remplissez ce formulaire : nous étudions votre demande et vous transmettons un devis personnalisé</p>
+    </div>
+  </div>
+
+  <nav class="breadcrumb">
+    <div class="container breadcrumb-inner">
+      <a href="index.html">Accueil</a>
+      <span class="breadcrumb-sep">›</span>
+      <a href="groupes-independants.html">Groupes Indépendants</a>
+      <span class="breadcrumb-sep">›</span>
+      <span>Demande de devis</span>
+    </div>
+  </nav>
+
+  <section class="content-section bg-grey">
+    <div class="container insc-classe-wrap">
+
+      <div class="alert-banner fade-in" style="margin-bottom:32px;">
+        <span class="alert-banner-icon">🏨</span>
+        <div>
+          <strong>Demande de devis – Groupe Indépendant</strong>
+          Les dates renseignées ci-dessous sont une demande de disponibilité. Fun Loisirs Réunion vérifie le planning et confirme ensuite la date exacte — vous ne réservez jamais directement.
+        </div>
+      </div>
+
+      <div class="insc-classe-form fade-in">
+        <form id="groupeForm" novalidate>
+          <input type="text" id="honeypot" name="honeypot" style="display:none" tabindex="-1" autocomplete="off">
+          <div id="formMsg"></div>
+
+          <!-- ── 1. Groupe ── -->
+          <div class="form-section">
+            <h3 class="form-section-title">🏨 Votre structure</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="structureNom">Nom de la structure <span style="color:#c0392b;">*</span></label>
+                <input type="text" id="structureNom" required placeholder="ex : Club de rugby Saint-Denis" />
+              </div>
+              <div class="form-group">
+                <label for="structureType">Type de structure <span style="color:#c0392b;">*</span></label>
+                <select id="structureType" required>
+                  <option value="">— Sélectionnez —</option>
+                  <option value="association">Association</option>
+                  <option value="club_sportif">Club sportif</option>
+                  <option value="entreprise">Entreprise</option>
+                  <option value="collectivite">Collectivité</option>
+                  <option value="famille">Famille / groupe privé</option>
+                  <option value="etablissement">Établissement</option>
+                  <option value="organisme_public">Organisme public</option>
+                  <option value="autre">Autre</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── 2. Responsable ── -->
+          <div class="form-section">
+            <h3 class="form-section-title">👤 Responsable</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="respNom">Nom <span style="color:#c0392b;">*</span></label>
+                <input type="text" id="respNom" required autocomplete="family-name" />
+              </div>
+              <div class="form-group">
+                <label for="respPrenom">Prénom <span style="color:#c0392b;">*</span></label>
+                <input type="text" id="respPrenom" required autocomplete="given-name" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="respFonction">Fonction</label>
+                <input type="text" id="respFonction" placeholder="ex : Président, Trésorier…" />
+              </div>
+              <div class="form-group">
+                <label for="respTel">Téléphone <span style="color:#c0392b;">*</span></label>
+                <input type="tel" id="respTel" required placeholder="0692 xx xx xx" autocomplete="tel" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="respEmail">Adresse e-mail <span style="color:#c0392b;">*</span></label>
+              <input type="email" id="respEmail" required autocomplete="email" />
+            </div>
+          </div>
+
+          <!-- ── 3. Dates ── -->
+          <div class="form-section">
+            <h3 class="form-section-title">📅 Dates souhaitées</h3>
+            <p style="color:var(--texte-clair);font-size:.88rem;margin-bottom:14px;">Il s'agit d'une demande de disponibilité, pas d'une réservation confirmée.</p>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="dateArrivee">Date d'arrivée <span style="color:#c0392b;">*</span></label>
+                <input type="date" id="dateArrivee" required />
+              </div>
+              <div class="form-group">
+                <label for="heureArrivee">Heure d'arrivée</label>
+                <input type="time" id="heureArrivee" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="dateDepart">Date de départ <span style="color:#c0392b;">*</span></label>
+                <input type="date" id="dateDepart" required />
+              </div>
+              <div class="form-group">
+                <label for="heureDepart">Heure de départ</label>
+                <input type="time" id="heureDepart" />
+              </div>
+            </div>
+          </div>
+
+          <!-- ── 4. Participants ── -->
+          <div class="form-section">
+            <h3 class="form-section-title">👥 Participants</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="nbAdultes">Nombre d'adultes <span style="color:#c0392b;">*</span></label>
+                <input type="number" id="nbAdultes" min="0" required placeholder="ex : 20" />
+              </div>
+              <div class="form-group">
+                <label for="nbEnfants">Nombre d'enfants</label>
+                <input type="number" id="nbEnfants" min="0" placeholder="ex : 5" />
+              </div>
+            </div>
+            <p style="font-size:.9rem;color:var(--texte-clair);">Total : <strong id="totalPersonnes">0</strong> personne(s)</p>
+          </div>
+
+          <!-- ── 5. Formule ── -->
+          <div class="form-section">
+            <h3 class="form-section-title">🍽️ Formule souhaitée <span style="color:#c0392b;font-size:.85rem;">*</span></h3>
+            <div class="prog-radio-group" id="formuleGroup">
+              <label class="prog-radio-card"><input type="radio" name="formule" value="pension_complete" required><span class="prog-radio-inner"><span class="prog-radio-label">Pension complète</span></span></label>
+              <label class="prog-radio-card"><input type="radio" name="formule" value="demi_pension"><span class="prog-radio-inner"><span class="prog-radio-label">Demi-pension</span></span></label>
+              <label class="prog-radio-card"><input type="radio" name="formule" value="weekend"><span class="prog-radio-inner"><span class="prog-radio-label">Forfait week-end</span></span></label>
+              <label class="prog-radio-card"><input type="radio" name="formule" value="autre"><span class="prog-radio-inner"><span class="prog-radio-label">Autre / sur devis</span></span></label>
+            </div>
+          </div>
+
+          <!-- ── 6. Repas ── -->
+          <div class="form-section">
+            <h3 class="form-section-title">🍴 Repas</h3>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="premierRepas">Premier repas souhaité</label>
+                <select id="premierRepas">
+                  <option value="">—</option>
+                  <option>Petit-déjeuner</option><option>Déjeuner</option><option>Dîner</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="dernierRepas">Dernier repas souhaité</label>
+                <select id="dernierRepas">
+                  <option value="">—</option>
+                  <option>Petit-déjeuner</option><option>Déjeuner</option><option>Dîner</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="repasSupp">Repas supplémentaires (nombre)</label>
+                <input type="number" id="repasSupp" min="0" value="0" />
+              </div>
+              <div class="form-group">
+                <label>Goûter souhaité ?</label>
+                <div class="checkboxes-group">
+                  <label class="checkbox-chip"><input type="checkbox" id="gouterSouhaite"> Oui</label>
+                </div>
+              </div>
+            </div>
+            <div class="form-group" id="gouterJoursGroup" style="display:none;">
+              <label for="gouterJours">Nombre de jours de goûter</label>
+              <input type="number" id="gouterJours" min="0" value="0" />
+            </div>
+          </div>
+
+          <!-- ── 7. Besoins ── -->
+          <div class="form-section">
+            <h3 class="form-section-title">📋 Besoins particuliers</h3>
+            <div class="form-group">
+              <label for="regimesAlim">Régimes alimentaires / allergies</label>
+              <textarea id="regimesAlim" rows="2" placeholder="ex : 2 végétariens, 1 allergie aux arachides…"></textarea>
+            </div>
+            <div class="checkboxes-group" style="margin-bottom:14px;">
+              <label class="checkbox-chip"><input type="checkbox" id="salleReunion"> Salle de réunion / séminaire souhaitée</label>
+            </div>
+            <div class="form-group">
+              <label for="besoinsAutres">Matériel, autres prestations, commentaires libres</label>
+              <textarea id="besoinsAutres" rows="3" placeholder="Précisez vos besoins spécifiques"></textarea>
+            </div>
+          </div>
+
+          <!-- ── Estimateur ── -->
+          <div class="estimateur-card" id="estimateurCard">
+            <div class="estimateur-header">
+              <span class="estimateur-icon">📊</span>
+              <div>
+                <div class="estimateur-title">Estimation indicative</div>
+                <div class="estimateur-subtitle" id="estimateurSubtitle" style="font-size:.82rem;opacity:.7;"></div>
+              </div>
+            </div>
+            <div class="estimateur-montant" id="estimateurMontant">—</div>
+            <div class="estimateur-ttc">€ TTC au total</div>
+            <div class="est-detail" id="estimateurDetail"></div>
+            <p class="estimateur-note">Cette estimation ne constitue pas un devis contractuel. Le tarif définitif est validé par Fun Loisirs Réunion après étude de la demande.</p>
+          </div>
+
+          <!-- ── Validation ── -->
+          <div class="form-section" style="border-bottom:none;padding-bottom:0;margin-bottom:0;">
+            <h3 class="form-section-title">✅ Validation</h3>
+            <div class="cert-group">
+              <input type="checkbox" id="certCheck" required />
+              <label for="certCheck">Je certifie que les informations renseignées sont exactes et autorise Fun Loisirs Réunion à recontacter la structure pour donner suite à cette demande.</label>
+            </div>
+            <button type="submit" class="btn btn-primary btn-full" id="submitBtn">Envoyer la demande de devis 📬</button>
+            <p class="submit-note">Fun Loisirs Réunion vous contactera pour étudier votre projet, confirmer les disponibilités et vous transmettre un devis personnalisé.</p>
+          </div>
+
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <span class="logo-icon">🌸</span><span class="logo-text">Les Hortensias</span>
+        <p>Centre de vacances à La Plaine-des-Palmistes, La Réunion. Géré par l'association <strong>Fun Loisirs Réunion</strong>.</p>
+      </div>
+      <div class="footer-links">
+        <h4>Nos séjours</h4>
+        <ul>
+          <li><a href="colonies.html">Colonies de vacances</a></li>
+          <li><a href="classe-volcan-nature.html">Classes Volcan &amp; Nature</a></li>
+          <li><a href="groupes-independants.html">Groupes Indépendants</a></li>
+          <li><a href="erasmus.html">Séjours Erasmus+</a></li>
+        </ul>
+      </div>
+      <div class="footer-contact">
+        <h4>Contact rapide</h4>
+        <p>📞 <a href="tel:+262692365838">06 92 36 58 38</a></p>
+        <p>✉️ <a href="mailto:contact.funloisirsreunion@gmail.com">contact.funloisirsreunion@gmail.com</a></p>
+        <p>📍 41 rue des Mimosas<br />97431 La Plaine-des-Palmistes, La Réunion</p>
+        <a href="https://wa.me/262692365838" target="_blank" rel="noopener" class="wa-btn">💬 WhatsApp</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <p>© 2026 Les Hortensias – Centre de Vacances | La Plaine-des-Palmistes, La Réunion | <a href="mentions-legales.html">Mentions légales</a></p>
+    </div>
+  </footer>
+
+  <a href="#" class="back-to-top" id="backToTop" aria-label="Retour en haut de page">↑</a>
+
+  <script src="script.js"></script>
+  <script>
+    const form = document.getElementById('groupeForm');
+    const submitBtn = document.getElementById('submitBtn');
+
+    function fmt(n) { return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
+    function showFormMsg(text, type) {
+      document.getElementById('formMsg').innerHTML = `<div class="app-msg app-msg-${type}" style="margin-bottom:20px;">${text}</div>`;
+    }
+
+    function updateTotal() {
+      const a = parseInt(document.getElementById('nbAdultes').value) || 0;
+      const e = parseInt(document.getElementById('nbEnfants').value) || 0;
+      document.getElementById('totalPersonnes').textContent = a + e;
+      calculateEstimate();
+    }
+    document.getElementById('nbAdultes').addEventListener('input', updateTotal);
+    document.getElementById('nbEnfants').addEventListener('input', updateTotal);
+
+    document.getElementById('gouterSouhaite').addEventListener('change', function () {
+      document.getElementById('gouterJoursGroup').style.display = this.checked ? 'block' : 'none';
+      calculateEstimate();
+    });
+
+    function nuitees() {
+      const d1 = document.getElementById('dateArrivee').value;
+      const d2 = document.getElementById('dateDepart').value;
+      if (!d1 || !d2) return 0;
+      const diff = Math.round((new Date(d2) - new Date(d1)) / 86400000);
+      return diff > 0 ? diff : 0;
+    }
+
+    function calculateEstimate() {
+      const card = document.getElementById('estimateurCard');
+      const formuleEl = document.querySelector('input[name="formule"]:checked');
+      const totalPersonnes = (parseInt(document.getElementById('nbAdultes').value) || 0) + (parseInt(document.getElementById('nbEnfants').value) || 0);
+      const nuits = nuitees();
+      const repasSupp = parseInt(document.getElementById('repasSupp').value) || 0;
+      const gouterJours = document.getElementById('gouterSouhaite').checked ? (parseInt(document.getElementById('gouterJours').value) || 0) : 0;
+
+      if (!formuleEl || !totalPersonnes) { card.style.display = 'none'; return; }
+      const formule = formuleEl.value;
+
+      if (formule === 'autre') {
+        document.getElementById('estimateurSubtitle').textContent = 'Formule sur devis';
+        document.getElementById('estimateurMontant').textContent = 'Sur devis';
+        document.getElementById('estimateurDetail').innerHTML = '';
+        card.style.display = 'block';
+        return;
+      }
+
+      if (formule !== 'weekend' && !nuits) { card.style.display = 'none'; return; }
+
+      let base = 0, tarifLabel = '', detail = '';
+      if (formule === 'pension_complete') {
+        const tarif = (totalPersonnes >= 20 && nuits >= 3) ? 50 : 55;
+        base = nuits * tarif;
+        tarifLabel = 'Pension complète';
+        detail += `<div class="est-line"><span>${nuits} nuitée(s) × ${fmt(tarif)}</span><span>${fmt(base)} / pers.</span></div>`;
+      } else if (formule === 'demi_pension') {
+        const tarif = (totalPersonnes >= 20 && nuits >= 3) ? 45 : 50;
+        base = nuits * tarif;
+        tarifLabel = 'Demi-pension';
+        detail += `<div class="est-line"><span>${nuits} nuitée(s) × ${fmt(tarif)}</span><span>${fmt(base)} / pers.</span></div>`;
+      } else if (formule === 'weekend') {
+        base = 110;
+        tarifLabel = 'Forfait week-end';
+        detail += `<div class="est-line"><span>Forfait week-end</span><span>${fmt(base)} / pers.</span></div>`;
+      }
+
+      let extras = 0;
+      if (repasSupp > 0) {
+        const montant = repasSupp * 15;
+        extras += montant;
+        detail += `<div class="est-line"><span>${repasSupp} repas supplémentaire(s) × 15 €</span><span>${fmt(montant)} / pers.</span></div>`;
+      }
+      if (gouterJours > 0) {
+        const montant = gouterJours * 1;
+        extras += montant;
+        detail += `<div class="est-line"><span>${gouterJours} jour(s) de goûter × 1 €</span><span>${fmt(montant)} / pers.</span></div>`;
+      }
+
+      const perPerson = base + extras;
+      const total = perPerson * totalPersonnes;
+
+      document.getElementById('estimateurSubtitle').textContent = `${tarifLabel} · ${totalPersonnes} personne(s)${formule !== 'weekend' ? ' · ' + nuits + ' nuitée(s)' : ''}`;
+      document.getElementById('estimateurMontant').textContent = total.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      document.getElementById('estimateurDetail').innerHTML = detail;
+      card.style.display = 'block';
+    }
+
+    form.addEventListener('change', calculateEstimate);
+    form.addEventListener('input', calculateEstimate);
+
+    form.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      const formuleEl = document.querySelector('input[name="formule"]:checked');
+      if (!formuleEl) { alert('Veuillez sélectionner une formule.'); return; }
+      if (!form.checkValidity()) { form.reportValidity(); return; }
+      if (!document.getElementById('certCheck').checked) { alert('Veuillez cocher la case de certification avant d\'envoyer.'); return; }
+
+      submitBtn.textContent = 'Envoi en cours…';
+      submitBtn.disabled = true;
+
+      const estimateurVisible = document.getElementById('estimateurCard').style.display === 'block';
+      const estimateurTexte = estimateurVisible ? document.getElementById('estimateurMontant').textContent : null;
+
+      const payload = {
+        honeypot: document.getElementById('honeypot').value,
+        structureNom: document.getElementById('structureNom').value,
+        structureType: document.getElementById('structureType').value,
+        contactNom: document.getElementById('respNom').value,
+        contactPrenom: document.getElementById('respPrenom').value,
+        contactFonction: document.getElementById('respFonction').value,
+        contactTelephone: document.getElementById('respTel').value,
+        contactEmail: document.getElementById('respEmail').value,
+        dateArrivee: document.getElementById('dateArrivee').value,
+        heureArrivee: document.getElementById('heureArrivee').value,
+        dateDepart: document.getElementById('dateDepart').value,
+        heureDepart: document.getElementById('heureDepart').value,
+        nbAdultes: document.getElementById('nbAdultes').value,
+        nbEnfants: document.getElementById('nbEnfants').value,
+        formule: formuleEl.value,
+        premierRepas: document.getElementById('premierRepas').value,
+        dernierRepas: document.getElementById('dernierRepas').value,
+        repasSupp: document.getElementById('repasSupp').value,
+        gouterSouhaite: document.getElementById('gouterSouhaite').checked,
+        gouterJours: document.getElementById('gouterJours').value,
+        regimesAlim: document.getElementById('regimesAlim').value,
+        salleReunion: document.getElementById('salleReunion').checked,
+        besoinsAutres: document.getElementById('besoinsAutres').value,
+        estimationTarifaire: estimateurTexte ? (estimateurTexte === 'Sur devis' ? 'Sur devis' : estimateurTexte + ' € TTC (estimation indicative)') : null,
+      };
+
+      try {
+        const res = await fetch('/api/public/demande-groupe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Échec de l\'envoi de la demande.');
+        window.location.href = 'contact-confirmee.html';
+      } catch (error) {
+        showFormMsg(error.message || 'Une erreur est survenue. Merci de réessayer ou de nous contacter directement.', 'error');
+        submitBtn.textContent = 'Envoyer la demande de devis 📬';
+        submitBtn.disabled = false;
+        window.scrollTo({ top: document.getElementById('formMsg').offsetTop - 100, behavior: 'smooth' });
+      }
+    });
+  </script>
+</body>
+</html>

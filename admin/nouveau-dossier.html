@@ -10,6 +10,15 @@
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../style.css" />
   <link rel="stylesheet" href="../app.css" />
+  <style>
+    .type-cards { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 24px; }
+    .type-card { flex: 1; min-width: 160px; cursor: pointer; }
+    .type-card input { display: none; }
+    .type-card-inner { padding: 20px 14px; border: 2px solid var(--beige-fonce); border-radius: var(--radius); text-align: center; background: var(--gris-clair); transition: var(--transition); }
+    .type-card input:checked + .type-card-inner { border-color: var(--vert-fonce); background: var(--beige-fonce); }
+    .type-card-icon { font-size: 1.8rem; display: block; margin-bottom: 8px; }
+    .type-card-label { font-weight: 700; font-size: .9rem; }
+  </style>
 </head>
 <body class="app-body">
   <div class="app-topbar">
@@ -22,28 +31,120 @@
 
   <div class="app-container" style="max-width:700px;">
     <div class="app-card">
-      <h2>Nouveau dossier séjour</h2>
+      <h2>Nouveau dossier</h2>
       <div id="msgBox"></div>
+
+      <div class="type-cards" id="typeCards">
+        <label class="type-card">
+          <input type="radio" name="clientType" value="school" checked />
+          <span class="type-card-inner"><span class="type-card-icon">🏫</span><span class="type-card-label">Classe de découverte</span></span>
+        </label>
+        <label class="type-card">
+          <input type="radio" name="clientType" value="group" />
+          <span class="type-card-inner"><span class="type-card-icon">👥</span><span class="type-card-label">Groupe indépendant</span></span>
+        </label>
+        <label class="type-card">
+          <input type="radio" name="clientType" value="colony" />
+          <span class="type-card-inner"><span class="type-card-icon">🏕️</span><span class="type-card-label">Colonie de vacances</span></span>
+        </label>
+      </div>
+
       <form id="form">
-        <div class="app-field"><label>Établissement *</label><input type="text" name="etablissement" required /></div>
-        <div class="app-grid-2">
-          <div class="app-field"><label>Commune</label><input type="text" name="commune" /></div>
-          <div class="app-field"><label>Adresse</label><input type="text" name="adresse" /></div>
-        </div>
-        <div class="app-grid-2">
-          <div class="app-field"><label>Contact (nom)</label><input type="text" name="contact_nom" /></div>
-          <div class="app-field"><label>Téléphone contact</label><input type="text" name="contact_telephone" /></div>
-        </div>
-        <div class="app-field"><label>E-mail contact</label><input type="email" name="contact_email" /></div>
-        <div class="app-grid-2">
-          <div class="app-field"><label>Programme</label>
-            <select name="programme"><option value="">—</option><option value="nature">Nature</option><option value="volcan">Volcan</option></select>
+        <!-- ── Classe de découverte ── -->
+        <div data-section="school">
+          <div class="app-field"><label>Établissement *</label><input type="text" name="etablissement" /></div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Commune</label><input type="text" name="commune" /></div>
+            <div class="app-field"><label>Adresse</label><input type="text" name="adresse" /></div>
           </div>
-          <div class="app-field"><label>Durée</label>
-            <select name="duree"><option value="">—</option><option value="3">3 jours</option><option value="4">4 jours</option><option value="5">5 jours</option></select>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Contact (nom)</label><input type="text" name="contact_nom" /></div>
+            <div class="app-field"><label>Contact (prénom)</label><input type="text" name="contact_prenom" /></div>
+          </div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Téléphone contact</label><input type="text" name="contact_telephone" /></div>
+            <div class="app-field"><label>E-mail contact</label><input type="email" name="contact_email" /></div>
+          </div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Programme</label>
+              <select name="programme"><option value="">—</option><option value="nature">Nature</option><option value="volcan">Volcan</option></select>
+            </div>
+            <div class="app-field"><label>Durée</label>
+              <select name="duree"><option value="">—</option><option value="3">3 jours</option><option value="4">4 jours</option><option value="5">5 jours</option></select>
+            </div>
+          </div>
+          <div class="app-field"><label>Période souhaitée</label><input type="text" name="periode_souhaitee" placeholder="Ex : mars ou avril 2027" /></div>
+        </div>
+
+        <!-- ── Groupe indépendant ── -->
+        <div data-section="group" style="display:none;">
+          <div class="app-field"><label>Nom de la structure *</label><input type="text" name="structure_nom" /></div>
+          <div class="app-field"><label>Type de structure</label>
+            <select name="structure_type">
+              <option value="">—</option>
+              <option value="association">Association</option>
+              <option value="club_sportif">Club sportif</option>
+              <option value="entreprise">Entreprise</option>
+              <option value="collectivite">Collectivité</option>
+              <option value="famille">Famille / groupe privé</option>
+              <option value="etablissement">Établissement</option>
+              <option value="organisme_public">Organisme public</option>
+              <option value="autre">Autre</option>
+            </select>
+          </div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Contact (nom)</label><input type="text" name="contact_nom" /></div>
+            <div class="app-field"><label>Contact (prénom)</label><input type="text" name="contact_prenom" /></div>
+          </div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Fonction</label><input type="text" name="contact_fonction" /></div>
+            <div class="app-field"><label>Téléphone</label><input type="text" name="contact_telephone" /></div>
+          </div>
+          <div class="app-field"><label>E-mail</label><input type="email" name="contact_email" /></div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Date d'arrivée souhaitée</label><input type="date" name="demande_date_arrivee" /></div>
+            <div class="app-field"><label>Heure d'arrivée</label><input type="time" name="demande_heure_arrivee" /></div>
+          </div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Date de départ souhaitée</label><input type="date" name="demande_date_depart" /></div>
+            <div class="app-field"><label>Heure de départ</label><input type="time" name="demande_heure_depart" /></div>
+          </div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Nombre d'adultes</label><input type="number" min="0" name="nb_adultes" /></div>
+            <div class="app-field"><label>Nombre d'enfants</label><input type="number" min="0" name="nb_enfants" /></div>
+          </div>
+          <div class="app-field"><label>Formule</label>
+            <select name="formule">
+              <option value="">—</option>
+              <option value="pension_complete">Pension complète</option>
+              <option value="demi_pension">Demi-pension</option>
+              <option value="weekend">Forfait week-end</option>
+              <option value="autre">Autre / sur devis</option>
+            </select>
           </div>
         </div>
-        <div class="app-field"><label>Période souhaitée (texte libre)</label><input type="text" name="periode_souhaitee" placeholder="Ex : mars ou avril 2027" /></div>
+
+        <!-- ── Colonie de vacances ── -->
+        <div data-section="colony" style="display:none;">
+          <div class="app-grid-2">
+            <div class="app-field"><label>Prénom de l'enfant *</label><input type="text" name="enfant_prenom" /></div>
+            <div class="app-field"><label>Nom de l'enfant *</label><input type="text" name="enfant_nom" /></div>
+          </div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Date de naissance</label><input type="date" name="enfant_date_naissance" /></div>
+            <div class="app-field"><label>Sexe</label>
+              <select name="enfant_sexe"><option value="">—</option><option value="fille">Fille</option><option value="garcon">Garçon</option></select>
+            </div>
+          </div>
+          <div class="app-field"><label>Colonie concernée</label><input type="text" name="colonie_nom" /></div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Responsable légal (nom)</label><input type="text" name="contact_nom" /></div>
+            <div class="app-field"><label>Téléphone</label><input type="text" name="contact_telephone" /></div>
+          </div>
+          <div class="app-field"><label>E-mail</label><input type="email" name="contact_email" /></div>
+          <div class="app-field" style="max-width:200px;"><label>Tarif colonie (€)</label><input type="number" step="0.01" name="tarif_colonie" /></div>
+        </div>
+
         <button type="submit" class="app-btn" id="submitBtn">Créer le dossier</button>
       </form>
     </div>
@@ -59,6 +160,19 @@
 
     function showMsg(text, type = 'error') { msgBox.innerHTML = `<div class="app-msg app-msg-${type}">${text}</div>`; }
 
+    function currentType() {
+      return document.querySelector('input[name="clientType"]:checked').value;
+    }
+
+    function updateSections() {
+      const type = currentType();
+      document.querySelectorAll('[data-section]').forEach(section => {
+        section.style.display = section.dataset.section === type ? 'block' : 'none';
+      });
+    }
+    document.querySelectorAll('input[name="clientType"]').forEach(r => r.addEventListener('change', updateSections));
+    updateSections();
+
     async function init() {
       supabase = await getSupabaseClient();
       const { data: { session } } = await supabase.auth.getSession();
@@ -71,8 +185,12 @@
       submitBtn.disabled = true; submitBtn.textContent = 'Création…';
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const fd = new FormData(form);
-        const body = Object.fromEntries(fd.entries());
+        const type = currentType();
+        const section = document.querySelector(`[data-section="${type}"]`);
+        const body = { clientType: type };
+        section.querySelectorAll('input, select, textarea').forEach(el => {
+          if (el.name) body[el.name] = el.value;
+        });
         const res = await fetch('/api/admin/create-dossier', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },

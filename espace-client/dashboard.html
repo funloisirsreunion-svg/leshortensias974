@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mes séjours — Espace Client | Les Hortensias</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../app.css" />
+  <style>
+    .sejour-card { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px; border:1px solid var(--beige-fonce); border-radius:var(--radius-sm); margin-bottom:14px; flex-wrap:wrap; }
+    .sejour-card:hover { border-color:var(--vert-moyen); }
+    .sejour-title { font-family:'Playfair Display',serif; font-size:1.1rem; color:var(--vert-fonce); margin-bottom:4px; }
+  </style>
+</head>
+<body class="app-body">
+
+  <div class="app-topbar">
+    <div class="app-logo"><span>🌸</span><span>Les Hortensias — Espace Client</span></div>
+    <div class="app-user">
+      <span id="userLabel"></span>
+      <button class="app-logout" id="logoutBtn">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="app-container" id="appRoot">
+    <div class="app-loading">Chargement de vos séjours…</div>
+  </div>
+
+  <script type="module">
+    import { getSupabaseClient } from '../lib/supabaseClient.js';
+    import { STATUTS, labelOf, formatDateFr } from '../lib/appConstants.js';
+
+    const root = document.getElementById('appRoot');
+    let supabase;
+
+    function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    async function init() {
+      try { supabase = await getSupabaseClient(); }
+      catch (e) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(e.message)}</div>`; return; }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { window.location.href = 'index.html'; return; }
+
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+      if (!profile) { root.innerHTML = `<div class="app-msg app-msg-error">Profil introuvable. Contactez l'administrateur.</div>`; return; }
+      if (profile.role === 'admin') { window.location.href = '../admin/dashboard.html'; return; }
+      document.getElementById('userLabel').textContent = profile.full_name || profile.email || '';
+
+      if (profile.email !== session.user.email) {
+        await supabase.from('profiles').update({ email: session.user.email }).eq('id', session.user.id);
+      }
+
+      supabase.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') window.location.href = 'index.html'; });
+
+      await loadSejours();
+    }
+
+    async function loadSejours() {
+      const { data: acces, error } = await supabase
+        .from('dossier_acces')
+        .select('*, dossiers(*)')
+        .neq('statut', 'desactive')
+        .order('created_at', { ascending: false });
+
+      if (error) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(error.message)}</div>`; return; }
+
+      if (!acces || acces.length === 0) {
+        root.innerHTML = `<div class="app-msg app-msg-info">Aucun séjour n'est encore associé à votre compte. Contactez Fun Loisirs Réunion.</div>`;
+        return;
+      }
+
+      root.innerHTML = `
+        <div class="app-card">
+          <h2>Mes séjours</h2>
+          ${acces.map(a => {
+            const d = a.dossiers;
+            if (!d) return '';
+            const dateLabel = d.date_confirmee_debut
+              ? formatDateFr(d.date_confirmee_debut)
+              : (d.date_proposee ? formatDateFr(d.date_proposee) + ' (proposée)' : 'Dates à venir');
+            const programmeLabel = d.programme === 'volcan' ? 'Classe Volcan' : d.programme === 'nature' ? 'Classe Nature' : 'Séjour';
+            return `
+            <a href="dossier.html?id=${d.id}" style="text-decoration:none;color:inherit;">
+              <div class="sejour-card">
+                <div>
+                  <div class="sejour-title">${programmeLabel} — ${esc(d.etablissement)}</div>
+                  <div style="font-size:.85rem;color:var(--texte-clair);">Dossier ${esc(d.numero)} · ${dateLabel}</div>
+                </div>
+                <span class="app-badge app-badge-gray">${labelOf(STATUTS, d.statut)}</span>
+              </div>
+            </a>`;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await supabase.auth.signOut();
+      window.location.href = 'index.html';
+    });
+
+    init();
+  </script>
+</body>
+</html>

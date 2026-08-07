@@ -96,7 +96,7 @@
 
         // Marque l'accès (invitation) comme activé — déclenche le journal + la notification admin.
         // Policy RLS dédiée : n'autorise que la transition invitation_envoyee -> compte_active, sur son propre compte.
-        if (profile && profile.role === 'enseignant') {
+        if (profile && profile.role === 'client') {
           await supabase.from('dossier_acces')
             .update({ statut: 'compte_active', activated_at: new Date().toISOString() })
             .eq('profile_id', session.user.id)
@@ -105,7 +105,7 @@
 
         showMsg('Mot de passe mis à jour. Redirection…', 'success');
         setTimeout(() => {
-          window.location.href = (profile && profile.role === 'admin') ? 'admin/dashboard.html' : 'espace-ecole/dashboard.html';
+          window.location.href = (profile && profile.role === 'admin') ? 'admin/dashboard.html' : 'espace-client/dashboard.html';
         }, 1200);
       } catch (error) {
         showMsg(error.message || 'Échec de la mise à jour du mot de passe.');

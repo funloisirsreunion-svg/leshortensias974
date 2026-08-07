@@ -109,7 +109,7 @@ export default async function handler(req, res) {
     userId = existingUser.id;
     isNewAccount = false;
     const { error: profileError } = await supabaseAdmin.from('profiles').upsert({
-      id: userId, role: 'enseignant', full_name: fullName || null, email: normalizedEmail,
+      id: userId, role: 'client', full_name: fullName || null, email: normalizedEmail,
     });
     if (profileError) return res.status(500).json({ error: 'Échec de mise à jour du profil : ' + profileError.message });
   } else {
@@ -123,7 +123,7 @@ export default async function handler(req, res) {
     actionLink = buildOwnLink(generated.properties.hashed_token, 'invite');
     isNewAccount = true;
     const { error: profileError } = await supabaseAdmin.from('profiles').upsert({
-      id: userId, role: 'enseignant', full_name: fullName || null, email: normalizedEmail,
+      id: userId, role: 'client', full_name: fullName || null, email: normalizedEmail,
     });
     if (profileError) return res.status(500).json({ error: 'Compte créé mais échec de la création du profil : ' + profileError.message });
   }
