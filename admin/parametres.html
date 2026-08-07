@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Paramètres du compte — Administration | Les Hortensias</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../app.css" />
+</head>
+<body class="app-body">
+  <div class="app-topbar">
+    <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
+    <div class="app-user">
+      <a href="dashboard.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Tableau de bord</a>
+      <button class="app-logout" id="logoutBtn">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="app-container" style="max-width:640px;">
+    <h1 style="font-size:1.5rem;color:var(--vert-fonce);margin-bottom:20px;">Paramètres du compte</h1>
+
+    <div class="app-card">
+      <h2>Informations du compte</h2>
+      <div id="infoBox" class="app-loading">Chargement…</div>
+    </div>
+
+    <div class="app-card">
+      <h2>Nom affiché</h2>
+      <div id="msgNom"></div>
+      <form id="nomForm" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
+        <div class="app-field" style="margin:0;flex:1;min-width:200px;"><label>Nom complet</label><input type="text" id="fullNameInput" /></div>
+        <button type="submit" class="app-btn app-btn-sm">Enregistrer</button>
+      </form>
+    </div>
+
+    <div class="app-card">
+      <h2>Changer le mot de passe</h2>
+      <div id="msgPassword"></div>
+      <form id="passwordForm">
+        <div class="app-field"><label>Mot de passe actuel</label><input type="password" id="currentPassword" required autocomplete="current-password" /></div>
+        <div class="app-field"><label>Nouveau mot de passe</label><input type="password" id="newPassword" required minlength="8" autocomplete="new-password" /></div>
+        <div class="app-field"><label>Confirmer le nouveau mot de passe</label><input type="password" id="newPassword2" required minlength="8" autocomplete="new-password" /></div>
+        <button type="submit" class="app-btn">Changer le mot de passe</button>
+      </form>
+    </div>
+
+    <div class="app-card">
+      <h2>Changer l'adresse e-mail</h2>
+      <p style="font-size:.85rem;color:var(--texte-clair);margin-bottom:14px;">
+        Un e-mail de confirmation sera envoyé à la nouvelle adresse. Le changement ne devient actif qu'après avoir cliqué sur le lien de confirmation.
+      </p>
+      <div id="msgEmail"></div>
+      <form id="emailForm" style="display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
+        <div class="app-field" style="margin:0;flex:1;min-width:220px;"><label>Nouvelle adresse e-mail</label><input type="email" id="newEmailInput" required /></div>
+        <button type="submit" class="app-btn app-btn-sm">Envoyer la confirmation</button>
+      </form>
+    </div>
+  </div>
+
+  <script type="module">
+    import { getSupabaseClient } from '../lib/supabaseClient.js';
+
+    let supabase;
+    function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function showMsg(id, text, type='error') { document.getElementById(id).innerHTML = `<div class="app-msg app-msg-${type}">${esc(text)}</div>`; }
+
+    async function init() {
+      supabase = await getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { window.location.href = 'index.html'; return; }
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+      if (!profile || profile.role !== 'admin') { await supabase.auth.signOut(); window.location.href = 'index.html'; return; }
+
+      await loadInfo(session);
+    }
+
+    async function loadInfo(session) {
+      const res = await fetch('/api/admin/me', { headers: { Authorization: `Bearer ${session.access_token}` } });
+      const info = await res.json();
+      if (!res.ok) { document.getElementById('infoBox').innerHTML = `<div class="app-msg app-msg-error">${esc(info.error)}</div>`; return; }
+
+      document.getElementById('infoBox').innerHTML = `
+        <p><strong>Nom :</strong> ${esc(info.fullName || '—')}</p>
+        <p><strong>E-mail :</strong> ${esc(info.email)}</p>
+        <p><strong>Rôle :</strong> Administrateur</p>
+        <p><strong>Dernière connexion :</strong> ${info.lastSignInAt ? new Date(info.lastSignInAt).toLocaleString('fr-FR') : '—'}</p>
+      `;
+      document.getElementById('fullNameInput').value = info.fullName || '';
+    }
+
+    document.getElementById('nomForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const { data: { session } } = await supabase.auth.getSession();
+      const fullName = document.getElementById('fullNameInput').value.trim();
+      const { error } = await supabase.from('profiles').update({ full_name: fullName }).eq('id', session.user.id);
+      if (error) return showMsg('msgNom', error.message);
+      showMsg('msgNom', 'Nom mis à jour.', 'success');
+      await loadInfo(session);
+    });
+
+    document.getElementById('passwordForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const current = document.getElementById('currentPassword').value;
+      const p1 = document.getElementById('newPassword').value;
+      const p2 = document.getElementById('newPassword2').value;
+      if (p1 !== p2) return showMsg('msgPassword', 'Les deux mots de passe ne correspondent pas.');
+
+      const { data: { session } } = await supabase.auth.getSession();
+      // Vérifie le mot de passe actuel en tentant une reconnexion avant de le changer.
+      const { error: reauthError } = await supabase.auth.signInWithPassword({ email: session.user.email, password: current });
+      if (reauthError) return showMsg('msgPassword', 'Mot de passe actuel incorrect.');
+
+      const { error } = await supabase.auth.updateUser({ password: p1 });
+      if (error) return showMsg('msgPassword', error.message);
+      showMsg('msgPassword', 'Votre mot de passe a bien été modifié.', 'success');
+      e.target.reset();
+    });
+
+    document.getElementById('emailForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const newEmail = document.getElementById('newEmailInput').value.trim();
+      const { error } = await supabase.auth.updateUser({ email: newEmail });
+      if (error) return showMsg('msgEmail', error.message);
+      showMsg('msgEmail', `Un e-mail de confirmation a été envoyé à ${esc(newEmail)} (et éventuellement à votre ancienne adresse selon la configuration). Le changement ne sera actif qu'après confirmation.`, 'success');
+      e.target.reset();
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await supabase.auth.signOut();
+      window.location.href = 'index.html';
+    });
+
+    init();
+  </script>
+</body>
+</html>

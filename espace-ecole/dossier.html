@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mon dossier — Espace Écoles | Les Hortensias</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../app.css" />
+</head>
+<body class="app-body">
+
+  <div class="app-topbar">
+    <div class="app-logo"><span>🌸</span><span>Les Hortensias — Espace Écoles</span></div>
+    <div class="app-user">
+      <a href="dashboard.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Mes séjours</a>
+      <span id="userLabel"></span>
+      <button class="app-logout" id="logoutBtn">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="app-container" id="appRoot">
+    <div class="app-loading">Chargement de votre dossier…</div>
+  </div>
+
+  <script type="module">
+    import { getSupabaseClient } from '../lib/supabaseClient.js';
+    import { STATUTS, DOCUMENTS, DOC_STATUTS, REGIMES, NIVEAUX, labelOf, badgeClassForDocStatut, formatDateFr } from '../lib/appConstants.js';
+
+    const dossierId = new URLSearchParams(window.location.search).get('id');
+    const root = document.getElementById('appRoot');
+    let supabase, session, profile, dossier, regimes, documents;
+
+    function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    async function init() {
+      if (!dossierId) { root.innerHTML = `<div class="app-msg app-msg-error">Séjour non spécifié. <a href="dashboard.html">Retour à mes séjours</a>.</div>`; return; }
+      try {
+        supabase = await getSupabaseClient();
+      } catch (e) {
+        root.innerHTML = `<div class="app-msg app-msg-error">${esc(e.message)}</div>`;
+        return;
+      }
+
+      const { data: { session: s } } = await supabase.auth.getSession();
+      if (!s) { window.location.href = 'index.html'; return; }
+      session = s;
+
+      supabase.auth.onAuthStateChange((event) => {
+        if (event === 'SIGNED_OUT') window.location.href = 'index.html';
+      });
+
+      const { data: p, error: pErr } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+      if (pErr || !p) { root.innerHTML = `<div class="app-msg app-msg-error">Profil introuvable. Contactez l'administrateur.</div>`; return; }
+      profile = p;
+      if (profile.role === 'admin') { window.location.href = '../admin/dashboard.html'; return; }
+      document.getElementById('userLabel').textContent = profile.full_name || profile.email || '';
+
+      if (profile.email !== session.user.email) {
+        await supabase.from('profiles').update({ email: session.user.email }).eq('id', session.user.id);
+      }
+
+      await loadAll();
+    }
+
+    async function loadAll() {
+      const [{ data: d, error: dErr }, { data: r }, { data: docs }] = await Promise.all([
+        supabase.from('dossiers').select('*').eq('id', dossierId).maybeSingle(),
+        supabase.from('regimes_alimentaires').select('*').eq('dossier_id', dossierId).order('type'),
+        supabase.from('documents').select('*').eq('dossier_id', dossierId),
+      ]);
+      if (dErr || !d) {
+        root.innerHTML = `<div class="app-msg app-msg-error">Ce dossier n'existe pas ou vous n'y avez pas accès. <a href="dashboard.html">Retour à mes séjours</a>.</div>`;
+        return;
+      }
+      dossier = d; regimes = r || []; documents = docs || [];
+      render();
+    }
+
+    function buildTodoList() {
+      const items = [];
+      const docsATraiter = DOCUMENTS.filter(dt => {
+        const doc = documents.find(x => x.type === dt.value);
+        return doc && doc.statut === 'a_fournir';
+      });
+      docsATraiter.forEach(dt => items.push(`Déposer : ${dt.label}`));
+      if (dossier.effectif_def_eleves === null || dossier.effectif_def_eleves === undefined) {
+        items.push('Compléter l\'effectif définitif d\'élèves');
+      }
+      const niveauxVides = !dossier.niveaux || Object.keys(dossier.niveaux).length === 0;
+      if (niveauxVides) items.push('Renseigner les niveaux scolaires');
+      return items;
+    }
+
+    function render() {
+      const todo = buildTodoList();
+      root.innerHTML = `
+        <div class="app-card">
+          <h2>${esc(dossier.etablissement)}</h2>
+          <p style="color:var(--texte-clair);margin-bottom:14px;">Dossier n° <strong>${esc(dossier.numero)}</strong></p>
+          <div class="app-grid-3">
+            <div class="app-kpi"><div class="app-kpi-num">${dossier.programme === 'volcan' ? 'Volcan' : dossier.programme === 'nature' ? 'Nature' : '—'}</div><div class="app-kpi-label">Programme</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${dossier.duree ? dossier.duree + 'j' : '—'}</div><div class="app-kpi-label">Durée</div></div>
+            <div class="app-kpi"><div class="app-kpi-num" style="font-size:1rem;">${labelOf(STATUTS, dossier.statut)}</div><div class="app-kpi-label">Statut</div></div>
+          </div>
+          <div style="margin-top:16px;font-size:.92rem;">
+            <p><strong>Date proposée :</strong> ${formatDateFr(dossier.date_proposee)}</p>
+            <p><strong>Dates confirmées :</strong> ${dossier.date_confirmee_debut ? `du ${formatDateFr(dossier.date_confirmee_debut)} au ${formatDateFr(dossier.date_confirmee_fin)}` : 'pas encore fixées'}</p>
+            <p style="color:var(--texte-clair);font-size:.82rem;margin-top:6px;">Seule Fun Loisirs Réunion peut modifier la date ou le statut du séjour.</p>
+          </div>
+        </div>
+
+        ${todo.length ? `
+        <div class="app-card">
+          <h2>À faire maintenant</h2>
+          <ul class="app-todo-list">
+            ${todo.map(t => `<li><span class="app-todo-dot"></span>${esc(t)}</li>`).join('')}
+          </ul>
+        </div>` : `<div class="app-msg app-msg-success">Votre dossier est à jour, rien ne vous attend pour le moment. 🎉</div>`}
+
+        <div class="app-card">
+          <h2>Effectifs &amp; niveaux</h2>
+          <div id="msgEffectifs"></div>
+          <form id="effectifsForm">
+            <h3>Niveaux scolaires (nombre d'élèves)</h3>
+            <div class="app-grid-3">
+              ${NIVEAUX.map(n => `
+                <div class="app-field">
+                  <label>${n.label}</label>
+                  <input type="number" min="0" name="niveau_${n.key}" value="${(dossier.niveaux && dossier.niveaux[n.key]) || 0}" />
+                </div>`).join('')}
+            </div>
+            <h3>Effectifs prévisionnels</h3>
+            <div class="app-grid-3">
+              <div class="app-field"><label>Élèves</label><input type="number" min="0" name="effectif_prev_eleves" value="${dossier.effectif_prev_eleves ?? ''}" /></div>
+              <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_prev_profs" value="${dossier.effectif_prev_profs ?? ''}" /></div>
+              <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_prev_accompagnateurs" value="${dossier.effectif_prev_accompagnateurs ?? ''}" /></div>
+            </div>
+            <h3>Effectifs définitifs</h3>
+            <div class="app-grid-3">
+              <div class="app-field"><label>Élèves</label><input type="number" min="0" name="effectif_def_eleves" value="${dossier.effectif_def_eleves ?? ''}" /></div>
+              <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_def_profs" value="${dossier.effectif_def_profs ?? ''}" /></div>
+              <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_def_accompagnateurs" value="${dossier.effectif_def_accompagnateurs ?? ''}" /></div>
+            </div>
+            <h3>Remarques alimentaires</h3>
+            <div class="app-field"><textarea name="remarques_alimentaires" rows="3">${esc(dossier.remarques_alimentaires)}</textarea></div>
+            <button type="submit" class="app-btn">Enregistrer</button>
+          </form>
+        </div>
+
+        <div class="app-card">
+          <h2>Régimes alimentaires</h2>
+          <div id="msgRegimes"></div>
+          <form id="regimesForm">
+            <div class="app-grid-3">
+              ${REGIMES.map(r => {
+                const row = regimes.find(x => x.type === r.value);
+                return `<div class="app-field"><label>${r.label}</label><input type="number" min="0" name="regime_${r.value}" value="${row ? row.nombre : 0}" /></div>`;
+              }).join('')}
+            </div>
+            <button type="submit" class="app-btn">Enregistrer les régimes</button>
+          </form>
+        </div>
+
+        <div class="app-card">
+          <h2>Documents</h2>
+          <div id="msgDocs"></div>
+          ${DOCUMENTS.map(dt => {
+            const doc = documents.find(x => x.type === dt.value) || { statut: 'a_fournir' };
+            if (doc.statut === 'non_requis') return '';
+            return `
+            <div class="app-doc-row">
+              <span class="app-doc-name">${dt.label}</span>
+              <span class="${badgeClassForDocStatut(doc.statut)}">${labelOf(DOC_STATUTS, doc.statut)}</span>
+              ${doc.file_name ? `<span style="font-size:.8rem;color:var(--texte-clair);">${esc(doc.file_name)}</span>` : ''}
+              <label class="app-btn app-btn-sm app-btn-outline" style="cursor:pointer;">
+                ${doc.file_name ? 'Remplacer' : 'Déposer'}
+                <input type="file" data-doctype="${dt.value}" style="display:none;" />
+              </label>
+            </div>`;
+          }).join('')}
+        </div>
+
+        <div class="app-card">
+          <h2>Signaler un virement</h2>
+          <p style="font-size:.85rem;color:var(--texte-clair);margin-bottom:12px;">
+            Vous avez effectué un virement ? Signalez-le ici, Fun Loisirs Réunion le rapprochera de votre dossier.
+          </p>
+          <div id="msgVirement"></div>
+          <form id="virementForm">
+            <div class="app-grid-2">
+              <div class="app-field"><label>Montant (€)</label><input type="number" min="0" step="0.01" name="montant" required /></div>
+              <div class="app-field"><label>Date du virement</label><input type="date" name="date_virement" required /></div>
+            </div>
+            <div class="app-field"><label>Note (optionnel)</label><input type="text" name="note" placeholder="Ex : acompte, part mairie…" /></div>
+            <button type="submit" class="app-btn">Signaler</button>
+          </form>
+        </div>
+      `;
+
+      document.getElementById('effectifsForm').addEventListener('submit', onSaveEffectifs);
+      document.getElementById('regimesForm').addEventListener('submit', onSaveRegimes);
+      document.getElementById('virementForm').addEventListener('submit', onSignalerVirement);
+      root.querySelectorAll('input[type=file][data-doctype]').forEach(input => {
+        input.addEventListener('change', onUploadDocument);
+      });
+    }
+
+    function showMsg(id, text, type = 'error') {
+      document.getElementById(id).innerHTML = `<div class="app-msg app-msg-${type}">${esc(text)}</div>`;
+    }
+
+    async function onSaveEffectifs(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const niveaux = {};
+      NIVEAUX.forEach(n => { niveaux[n.key] = Number(fd.get(`niveau_${n.key}`)) || 0; });
+      const payload = {
+        niveaux,
+        effectif_prev_eleves: fd.get('effectif_prev_eleves') ? Number(fd.get('effectif_prev_eleves')) : null,
+        effectif_prev_profs: fd.get('effectif_prev_profs') ? Number(fd.get('effectif_prev_profs')) : null,
+        effectif_prev_accompagnateurs: fd.get('effectif_prev_accompagnateurs') ? Number(fd.get('effectif_prev_accompagnateurs')) : null,
+        effectif_def_eleves: fd.get('effectif_def_eleves') ? Number(fd.get('effectif_def_eleves')) : null,
+        effectif_def_profs: fd.get('effectif_def_profs') ? Number(fd.get('effectif_def_profs')) : null,
+        effectif_def_accompagnateurs: fd.get('effectif_def_accompagnateurs') ? Number(fd.get('effectif_def_accompagnateurs')) : null,
+        remarques_alimentaires: fd.get('remarques_alimentaires') || null,
+      };
+      const { error } = await supabase.from('dossiers').update(payload).eq('id', dossier.id);
+      if (error) { showMsg('msgEffectifs', error.message); return; }
+      showMsg('msgEffectifs', 'Enregistré.', 'success');
+      await loadAll();
+    }
+
+    async function onSaveRegimes(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        for (const r of REGIMES) {
+          const nombre = Number(fd.get(`regime_${r.value}`)) || 0;
+          const { error } = await supabase.from('regimes_alimentaires')
+            .update({ nombre }).eq('dossier_id', dossier.id).eq('type', r.value);
+          if (error) throw error;
+        }
+        showMsg('msgRegimes', 'Régimes alimentaires enregistrés.', 'success');
+        await loadAll();
+      } catch (error) {
+        showMsg('msgRegimes', error.message);
+      }
+    }
+
+    async function onUploadDocument(e) {
+      const input = e.target;
+      const file = input.files[0];
+      if (!file) return;
+      const doctype = input.dataset.doctype;
+      if (file.size > 10 * 1024 * 1024) { showMsg('msgDocs', 'Fichier trop volumineux (10 Mo max).'); return; }
+      try {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const path = `${dossier.id}/${doctype}/${Date.now()}_${safeName}`;
+        const { error: upErr } = await supabase.storage.from('documents-dossiers').upload(path, file, { upsert: true });
+        if (upErr) throw upErr;
+        const { error: docErr } = await supabase.from('documents')
+          .update({ storage_path: path, file_name: file.name, statut: 'recu' })
+          .eq('dossier_id', dossier.id).eq('type', doctype);
+        if (docErr) throw docErr;
+        showMsg('msgDocs', 'Document déposé.', 'success');
+        await loadAll();
+      } catch (error) {
+        showMsg('msgDocs', error.message || 'Échec du dépôt du document.');
+      }
+    }
+
+    async function onSignalerVirement(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const payload = {
+        dossier_id: dossier.id,
+        montant: Number(fd.get('montant')),
+        date_virement: fd.get('date_virement'),
+        note: fd.get('note') || null,
+        signale_par: session.user.id,
+      };
+      const { error } = await supabase.from('signalements_paiement').insert(payload);
+      if (error) { showMsg('msgVirement', error.message); return; }
+      showMsg('msgVirement', 'Virement signalé, merci ! Il sera vérifié par Fun Loisirs Réunion.', 'success');
+      e.target.reset();
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      const supabase = await getSupabaseClient();
+      await supabase.auth.signOut();
+      window.location.href = 'index.html';
+    });
+
+    init();
+  </script>
+</body>
+</html>

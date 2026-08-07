@@ -12,6 +12,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="app.css" />
   <style>
     .insc-classe-wrap { max-width:760px; margin:0 auto; }
     .insc-classe-form { background:var(--blanc); border-radius:var(--radius); box-shadow:var(--ombre); padding:48px; }
@@ -138,20 +139,12 @@
       </div>
 
       <div class="insc-classe-form fade-in">
-        <form
-          id="classeForm"
-          action="https://formsubmit.co/contact.funloisirsreunion@gmail.com"
-          method="POST"
-          novalidate
-        >
-          <!-- Config FormSubmit -->
-          <input type="hidden" name="_subject"  value="🌋 Demande de devis Classe Volcan & Nature – Les Hortensias">
-          <input type="hidden" name="_template" value="table">
-          <input type="hidden" name="_next"     value="https://www.leshortensias974.fr/contact-confirmee.html">
-          <input type="hidden" name="_captcha"  value="true">
-          <input type="text"   name="_honey"    style="display:none" tabindex="-1" autocomplete="off">
+        <form id="classeForm" novalidate>
+          <!-- Piège à robots -->
+          <input type="text" id="honeypot" name="honeypot" style="display:none" tabindex="-1" autocomplete="off">
           <!-- Champ caché pour les niveaux sélectionnés -->
           <input type="hidden" id="niveauxHidden" name="Niveaux des élèves" value="">
+          <div id="formMsg"></div>
 
           <!-- ── 1. Établissement ── -->
           <div class="form-section">
@@ -462,30 +455,62 @@
     }
 
     // ── Validation et envoi ───────────────────────────────
-    document.getElementById('submitBtn').addEventListener('click', function(e) {
+    function showFormMsg(text, type) {
+      document.getElementById('formMsg').innerHTML = `<div class="app-msg app-msg-${type}" style="margin-bottom:20px;">${text}</div>`;
+    }
+
+    classeForm.addEventListener('submit', async function(e) {
+      e.preventDefault();
       const form      = document.getElementById('classeForm');
       const certCheck = document.getElementById('certCheck');
       const progEl    = document.querySelector('input[name="Programme souhaité"]:checked');
+      const submitBtn = document.getElementById('submitBtn');
 
-      if (!progEl) {
-        alert('Veuillez sélectionner un programme (Classe Volcan ou Classe Nature).');
-        e.preventDefault();
-        return;
-      }
-      if (!form.checkValidity()) {
-        form.reportValidity();
-        e.preventDefault();
-        return;
-      }
-      if (!certCheck.checked) {
-        alert('Veuillez cocher la case de certification avant d\'envoyer.');
-        e.preventDefault();
-        return;
-      }
+      if (!progEl) { alert('Veuillez sélectionner un programme (Classe Volcan ou Classe Nature).'); return; }
+      if (!form.checkValidity()) { form.reportValidity(); return; }
+      if (!certCheck.checked) { alert('Veuillez cocher la case de certification avant d\'envoyer.'); return; }
 
       updateNiveaux();
-      this.textContent = 'Envoi en cours…';
-      this.disabled = true;
+      submitBtn.textContent = 'Envoi en cours…';
+      submitBtn.disabled = true;
+
+      const payload = {
+        honeypot: document.getElementById('honeypot').value,
+        etablissement: document.getElementById('nomEcole').value,
+        commune: document.getElementById('commune').value,
+        contactNom: document.getElementById('refNom').value,
+        contactPrenom: document.getElementById('refPrenom').value,
+        contactFonction: document.getElementById('refFonction').value,
+        contactTelephone: document.getElementById('refTel').value,
+        contactEmail: document.getElementById('refEmail').value,
+        niveaux: [...niveauxGroup.querySelectorAll('input:checked')].map(c => c.value),
+        nbClasses: document.getElementById('nbClasses').value,
+        nbEleves: document.getElementById('nbEleves').value,
+        nbProfs: document.getElementById('nbProfs').value,
+        nbAccomp: document.getElementById('nbAccomp').value,
+        programme: progEl.value,
+        duree: document.getElementById('duree').value,
+        periode: document.getElementById('periode').value,
+        estimationTarifaire: document.getElementById('estimateurCard').style.display === 'block'
+          ? (document.getElementById('estimateurMontant').textContent + ' € TTC (estimation indicative)')
+          : null,
+      };
+
+      try {
+        const res = await fetch('/api/public/demande-devis', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Échec de l\'envoi de la demande.');
+        window.location.href = 'contact-confirmee.html';
+      } catch (error) {
+        showFormMsg(error.message || 'Une erreur est survenue. Merci de réessayer ou de nous contacter directement.', 'error');
+        submitBtn.textContent = 'Envoyer la demande de devis 📬';
+        submitBtn.disabled = false;
+        window.scrollTo({ top: document.getElementById('formMsg').offsetTop - 100, behavior: 'smooth' });
+      }
     });
   </script>
 </body>

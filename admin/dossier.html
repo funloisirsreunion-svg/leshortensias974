@@ -16,6 +16,7 @@
     <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
     <div class="app-user">
       <a href="dashboard.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Tableau de bord</a>
+      <a href="parametres.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">⚙️</a>
       <button class="app-logout" id="logoutBtn">Déconnexion</button>
     </div>
   </div>
@@ -26,12 +27,12 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
-    import { STATUTS, DOCUMENTS, DOC_STATUTS, REGIMES, NIVEAUX, labelOf, formatDateFr, formatMontant } from '../lib/appConstants.js';
+    import { STATUTS, DOCUMENTS, DOC_STATUTS, REGIMES, NIVEAUX, JOURNAL_LABELS, ACCESS_STATUTS, labelOf, formatDateFr, formatMontant } from '../lib/appConstants.js';
 
     const params = new URLSearchParams(window.location.search);
     const dossierId = params.get('id');
     const root = document.getElementById('appRoot');
-    let supabase, session, dossier, regimes, documents, paiements, signalements, historique;
+    let supabase, session, dossier, regimes, documents, paiements, signalements, historique, journal, acces;
 
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
     function opt(list, val, key='value', lab='label') {
@@ -54,28 +55,72 @@
     }
 
     async function loadAll() {
-      const [{ data: d, error: dErr }, { data: r }, { data: docs }, { data: pmts }, { data: sig }, { data: hist }, { data: teacher }] = await Promise.all([
+      const [{ data: d, error: dErr }, { data: r }, { data: docs }, { data: pmts }, { data: sig }, { data: hist }, { data: journ }, { data: accesRows }] = await Promise.all([
         supabase.from('dossiers').select('*').eq('id', dossierId).single(),
         supabase.from('regimes_alimentaires').select('*').eq('dossier_id', dossierId).order('type'),
         supabase.from('documents').select('*').eq('dossier_id', dossierId),
         supabase.from('paiements').select('*').eq('dossier_id', dossierId).order('date_paiement', { ascending: false }),
         supabase.from('signalements_paiement').select('*').eq('dossier_id', dossierId).order('created_at', { ascending: false }),
         supabase.from('statuts_historique').select('*').eq('dossier_id', dossierId).order('changed_at', { ascending: false }),
-        supabase.from('profiles').select('*').eq('dossier_id', dossierId).eq('role', 'enseignant').maybeSingle(),
+        supabase.from('dossier_journal').select('*').eq('dossier_id', dossierId).order('created_at', { ascending: false }),
+        supabase.from('dossier_acces').select('*, profiles(*)').eq('dossier_id', dossierId).order('created_at'),
       ]);
       if (dErr || !d) { root.innerHTML = `<div class="app-msg app-msg-error">Dossier introuvable.</div>`; return; }
-      dossier = d; regimes = r || []; documents = docs || []; paiements = pmts || []; signalements = sig || []; historique = hist || [];
-      window.__teacher = teacher || null;
+      dossier = d; regimes = r || []; documents = docs || []; paiements = pmts || []; signalements = sig || [];
+      historique = hist || []; journal = journ || []; acces = accesRows || [];
       render();
     }
 
+    function buildTimeline() {
+      const fromHistorique = historique.map(h => ({
+        ts: h.changed_at,
+        label: (h.ancien_statut ? labelOf(STATUTS, h.ancien_statut) + ' → ' : '') + labelOf(STATUTS, h.nouveau_statut),
+        details: null,
+      }));
+      const fromJournal = journal.map(j => ({
+        ts: j.created_at,
+        label: JOURNAL_LABELS[j.action] || j.action,
+        details: j.details,
+      }));
+      return [...fromHistorique, ...fromJournal]
+        .sort((a, b) => new Date(b.ts) - new Date(a.ts))
+        .map(item => ({ ...item, date: new Date(item.ts).toLocaleString('fr-FR') }));
+    }
+
+    function buildQuickActions() {
+      const s = dossier.statut;
+      const actions = [];
+      if (s === 'demande_recue') {
+        actions.push({ id: 'valider', label: 'Valider la demande', cls: '' });
+        actions.push({ id: 'refuser', label: 'Refuser', cls: 'app-btn-outline' });
+        actions.push({ id: 'archiver', label: 'Archiver', cls: 'app-btn-outline' });
+      } else if (!['refusee', 'archivee', 'annule', 'cloture'].includes(s)) {
+        if (s === 'demande_validee' && dossier.montant_devis) {
+          actions.push({ id: 'devis_envoye', label: 'Marquer le devis envoyé', cls: '' });
+        }
+        actions.push({ id: 'relance', label: 'Envoyer une relance', cls: 'app-btn-outline' });
+        actions.push({ id: 'archiver', label: 'Archiver', cls: 'app-btn-outline' });
+      }
+      return actions;
+    }
+
     function render() {
-      const teacher = window.__teacher;
       const reste = dossier.montant_facture != null ? Number(dossier.montant_facture) - Number(dossier.montant_paye || 0) : null;
+      const quickActions = buildQuickActions();
 
       root.innerHTML = `
         <div class="app-card">
-          <h2>${esc(dossier.etablissement)} — <span style="color:var(--or);">${esc(dossier.numero)}</span></h2>
+          <h2>${esc(dossier.etablissement)} — <span style="color:var(--or);">${esc(dossier.numero)}</span> ${dossier.source === 'public' ? '<span class="app-badge app-badge-orange">Demande site public</span>' : ''}</h2>
+          ${quickActions.length ? `
+          <div id="msgActions"></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
+            ${quickActions.map(a => `<button class="app-btn app-btn-sm ${a.cls}" data-quick-action="${a.id}">${a.label}</button>`).join('')}
+          </div>
+          <div id="relancePanel" style="display:none;margin-bottom:18px;">
+            <textarea id="relanceMessage" rows="3" placeholder="Message de relance (optionnel)" style="width:100%;padding:10px;border:2px solid var(--beige-fonce);border-radius:8px;font-family:inherit;"></textarea>
+            <button class="app-btn app-btn-sm" id="sendRelanceBtn" style="margin-top:8px;">Envoyer</button>
+          </div>
+          ` : ''}
           <div id="msgGeneral"></div>
           <form id="generalForm">
             <div class="app-grid-2">
@@ -204,25 +249,34 @@
         </div>
 
         <div class="app-card">
-          <h2>Accès enseignant</h2>
+          <h2>Accès client</h2>
           <div id="msgTeacher"></div>
-          ${teacher ? `
-            <p>Compte actif : <strong>${esc(teacher.email)}</strong> ${teacher.full_name ? '(' + esc(teacher.full_name) + ')' : ''}</p>
-            <button class="app-btn app-btn-sm app-btn-outline" id="resendAccessBtn" data-email="${esc(teacher.email)}" data-name="${esc(teacher.full_name||'')}">Réinitialiser / renvoyer les identifiants</button>
-          ` : `
-            <p style="font-size:.85rem;color:var(--texte-clair);margin-bottom:12px;">Aucun accès créé. À faire une fois le devis accepté.</p>
-            <form id="teacherForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
-              <div class="app-field" style="margin:0;"><label>Nom</label><input type="text" name="fullName" /></div>
-              <div class="app-field" style="margin:0;flex:1;min-width:200px;"><label>E-mail *</label><input type="email" name="email" required /></div>
-              <button type="submit" class="app-btn app-btn-sm">Créer l'accès</button>
-            </form>
-          `}
+          ${acces.length ? acces.map(a => {
+            const p = a.profiles;
+            const statutInfo = ACCESS_STATUTS.find(s => s.value === a.statut) || {};
+            return `
+            <div class="app-doc-row">
+              <span class="app-doc-name">${esc(p?.email || '—')} ${p?.full_name ? '(' + esc(p.full_name) + ')' : ''}</span>
+              <span class="app-badge app-badge-${statutInfo.color || 'gray'}">${statutInfo.label || a.statut}</span>
+              ${a.statut === 'desactive'
+                ? `<button class="app-btn app-btn-sm app-btn-outline" data-toggle-access="enable" data-user-id="${p?.id}">Réactiver</button>`
+                : `
+                  <button class="app-btn app-btn-sm app-btn-outline" data-resend-access="${esc(p?.email || '')}" data-name="${esc(p?.full_name || '')}">Renvoyer l'invitation</button>
+                  <button class="app-btn app-btn-sm app-btn-danger" data-toggle-access="disable" data-user-id="${p?.id}">Désactiver</button>
+                `}
+            </div>`;
+          }).join('') : `<p style="font-size:.85rem;color:var(--texte-clair);margin-bottom:12px;">Aucun accès créé. À faire une fois le devis accepté.</p>`}
+          <form id="teacherForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-top:16px;">
+            <div class="app-field" style="margin:0;"><label>Nom</label><input type="text" name="fullName" /></div>
+            <div class="app-field" style="margin:0;flex:1;min-width:200px;"><label>E-mail *</label><input type="email" name="email" required /></div>
+            <button type="submit" class="app-btn app-btn-sm">Créer / ajouter un accès client</button>
+          </form>
         </div>
 
         <div class="app-card">
-          <h2>Historique des statuts</h2>
+          <h2>Historique</h2>
           <ul class="app-todo-list">
-            ${historique.map(h => `<li><span class="app-todo-dot"></span>${h.ancien_statut ? labelOf(STATUTS, h.ancien_statut) + ' → ' : ''}${labelOf(STATUTS, h.nouveau_statut)} — ${new Date(h.changed_at).toLocaleString('fr-FR')}</li>`).join('') || '<li>Aucun historique.</li>'}
+            ${buildTimeline().map(h => `<li><span class="app-todo-dot"></span>${esc(h.label)} ${h.details ? '— ' + esc(h.details) : ''} <span style="color:var(--texte-clair);font-size:.8rem;">— ${h.date}</span></li>`).join('') || '<li>Aucun historique.</li>'}
           </ul>
         </div>
       `;
@@ -382,9 +436,70 @@
           await createTeacherAccess(fd.get('email'), fd.get('fullName'));
         });
       }
-      const resendBtn = document.getElementById('resendAccessBtn');
-      if (resendBtn) {
-        resendBtn.addEventListener('click', () => createTeacherAccess(resendBtn.dataset.email, resendBtn.dataset.name));
+      document.querySelectorAll('[data-resend-access]').forEach(btn => {
+        btn.addEventListener('click', () => createTeacherAccess(btn.dataset.resendAccess, btn.dataset.name));
+      });
+      document.querySelectorAll('[data-toggle-access]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const action = btn.dataset.toggleAccess;
+          const userId = btn.dataset.userId;
+          if (!userId) return;
+          showMsg('msgTeacher', action === 'disable' ? 'Désactivation…' : 'Réactivation…', 'info');
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const res = await fetch('/api/admin/toggle-client-access', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+              body: JSON.stringify({ dossierId, userId, action }),
+            });
+            const json = await res.json();
+            if (!res.ok) throw new Error(json.error || 'Échec.');
+            showMsg('msgTeacher', action === 'disable' ? 'Accès désactivé.' : 'Accès réactivé.', 'success');
+            await loadAll();
+          } catch (error) {
+            showMsg('msgTeacher', error.message);
+          }
+        });
+      });
+
+      document.querySelectorAll('[data-quick-action]').forEach(btn => {
+        btn.addEventListener('click', () => onQuickAction(btn.dataset.quickAction));
+      });
+      const relanceBtn = document.getElementById('sendRelanceBtn');
+      if (relanceBtn) relanceBtn.addEventListener('click', onSendRelance);
+    }
+
+    async function onQuickAction(action) {
+      const statutMap = { valider: 'demande_validee', refuser: 'refusee', archiver: 'archivee', devis_envoye: 'devis_envoye' };
+      if (action === 'relance') {
+        document.getElementById('relancePanel').style.display = 'block';
+        return;
+      }
+      const nouveauStatut = statutMap[action];
+      if (!nouveauStatut) return;
+      const { error } = await supabase.from('dossiers').update({ statut: nouveauStatut }).eq('id', dossierId);
+      if (error) return showMsg('msgActions', error.message);
+      showMsg('msgActions', 'Statut mis à jour.', 'success');
+      await loadAll();
+    }
+
+    async function onSendRelance() {
+      const message = document.getElementById('relanceMessage').value.trim();
+      showMsg('msgActions', 'Envoi en cours…', 'info');
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch('/api/admin/send-relance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ dossierId, message }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Échec.');
+        showMsg('msgActions', 'Relance envoyée.', 'success');
+        document.getElementById('relancePanel').style.display = 'none';
+        await loadAll();
+      } catch (error) {
+        showMsg('msgActions', error.message);
       }
     }
 
@@ -399,11 +514,7 @@
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || 'Échec.');
-        if (json.emailSent) {
-          showMsg('msgTeacher', 'Identifiants envoyés par e-mail à l\'enseignant.', 'success');
-        } else {
-          showMsg('msgTeacher', `Compte créé mais l'e-mail n'a pas pu être envoyé (${esc(json.emailError||'')}). Mot de passe temporaire à transmettre vous-même : ${esc(json.tempPassword||'')}`, 'info');
-        }
+        showMsg('msgTeacher', json.emailSent ? 'E-mail envoyé avec succès.' : `Accès enregistré mais l'e-mail n'a pas pu être envoyé (${esc(json.emailError || '')}).`, json.emailSent ? 'success' : 'info');
         await loadAll();
       } catch (error) {
         showMsg('msgTeacher', error.message);

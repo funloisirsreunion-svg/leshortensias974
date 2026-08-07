@@ -17,12 +17,17 @@
     <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
     <div class="app-user">
       <span id="userLabel"></span>
+      <button class="app-logout" id="notifBtn">🔔 Notifications <span id="notifBadge"></span></button>
       <a href="nouveau-dossier.html" class="app-btn app-btn-sm">+ Nouveau dossier</a>
+      <a href="parametres.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">⚙️ Paramètres</a>
       <button class="app-logout" id="logoutBtn">Déconnexion</button>
     </div>
   </div>
 
-  <div class="app-container" id="appRoot">
+  <div class="app-container" style="padding-bottom:0;">
+    <div id="notifPanel" class="app-card" style="display:none;"></div>
+  </div>
+  <div class="app-container" id="appRoot" style="padding-top:0;">
     <div class="app-loading">Chargement…</div>
   </div>
 
@@ -31,7 +36,7 @@
     import { STATUTS, labelOf, formatDateFr, formatMontant } from '../lib/appConstants.js';
 
     const root = document.getElementById('appRoot');
-    let supabase, dossiers = [], documentsCount = {}, activeFilter = null, searchTerm = '';
+    let supabase, dossiers = [], documentsCount = {}, activeFilter = null, searchTerm = '', notifications = [];
 
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -45,6 +50,11 @@
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
       if (!profile || profile.role !== 'admin') { await supabase.auth.signOut(); window.location.href = 'index.html'; return; }
       document.getElementById('userLabel').textContent = profile.full_name || profile.email || '';
+
+      // Synchronise profiles.email si une confirmation de changement d'adresse a eu lieu.
+      if (profile.email !== session.user.email) {
+        await supabase.from('profiles').update({ email: session.user.email }).eq('id', session.user.id);
+      }
 
       supabase.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') window.location.href = 'index.html'; });
 
@@ -64,8 +74,54 @@
         if (doc.statut === 'valide') documentsCount[doc.dossier_id].valides++;
       });
 
+      const { data: notifs } = await supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(50);
+      notifications = notifs || [];
+      updateNotifBadge();
+
       render();
     }
+
+    function updateNotifBadge() {
+      const unread = notifications.filter(n => !n.lu).length;
+      document.getElementById('notifBadge').textContent = unread ? `(${unread})` : '';
+    }
+
+    function renderNotifPanel() {
+      const panel = document.getElementById('notifPanel');
+      panel.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h2 style="margin:0;">Notifications</h2>
+          <button class="app-btn app-btn-sm app-btn-outline" id="markAllReadBtn">Tout marquer comme lu</button>
+        </div>
+        <ul class="app-todo-list">
+          ${notifications.map(n => `
+            <li style="cursor:pointer;${n.lu ? 'opacity:.55;' : ''}" data-notif-id="${n.id}" data-notif-dossier="${n.dossier_id || ''}">
+              <span class="app-todo-dot" style="background:${n.lu ? 'var(--beige-fonce)' : 'var(--or)'};"></span>
+              ${esc(n.message)} <span style="color:var(--texte-clair);font-size:.78rem;">— ${new Date(n.created_at).toLocaleString('fr-FR')}</span>
+            </li>`).join('') || '<li>Aucune notification.</li>'}
+        </ul>
+      `;
+      document.getElementById('markAllReadBtn').addEventListener('click', async () => {
+        await supabase.from('notifications').update({ lu: true }).eq('lu', false);
+        await loadAll();
+        renderNotifPanel();
+      });
+      panel.querySelectorAll('[data-notif-id]').forEach(li => {
+        li.addEventListener('click', async () => {
+          await supabase.from('notifications').update({ lu: true }).eq('id', li.dataset.notifId);
+          if (li.dataset.notifDossier) window.location.href = `dossier.html?id=${li.dataset.notifDossier}`;
+          else { await loadAll(); renderNotifPanel(); }
+        });
+      });
+    }
+
+    document.getElementById('notifBtn').addEventListener('click', () => {
+      const panel = document.getElementById('notifPanel');
+      const showing = panel.style.display !== 'none';
+      if (showing) { panel.style.display = 'none'; return; }
+      renderNotifPanel();
+      panel.style.display = 'block';
+    });
 
     function today() { return new Date().toISOString().slice(0, 10); }
 
@@ -111,11 +167,31 @@
       return `<span class="app-badge ${cls}">${c.valides}/${c.total}</span>`;
     }
 
+    function nouvellesDemandes() {
+      return dossiers.filter(d => d.source === 'public' && d.statut === 'demande_recue');
+    }
+
     function render() {
       const alerts = buildAlerts();
       const list = filteredDossiers();
+      const demandes = nouvellesDemandes();
 
       root.innerHTML = `
+        ${demandes.length > 0 ? `
+        <div class="app-card">
+          <h2>${demandes.length} nouvelle${demandes.length > 1 ? 's' : ''} demande${demandes.length > 1 ? 's' : ''} à traiter</h2>
+          ${demandes.map(d => `
+            <div class="app-doc-row">
+              <span class="app-doc-name">${esc(d.etablissement)} — ${d.programme === 'volcan' ? 'Volcan' : 'Nature'} · ${d.duree ? d.duree + 'j' : '—'} · ${esc(d.periode_souhaitee || 'période non précisée')} · ${d.effectif_prev_eleves ?? '?'} élèves</span>
+              <span style="font-size:.78rem;color:var(--texte-clair);">${new Date(d.created_at).toLocaleDateString('fr-FR')}</span>
+              <a class="app-btn app-btn-sm app-btn-outline" href="dossier.html?id=${d.id}">Ouvrir</a>
+              <button class="app-btn app-btn-sm" data-demande-action="valider" data-demande-id="${d.id}">Valider</button>
+              <button class="app-btn app-btn-sm app-btn-outline" data-demande-action="refuser" data-demande-id="${d.id}">Refuser</button>
+              <button class="app-btn app-btn-sm app-btn-outline" data-demande-action="archiver" data-demande-id="${d.id}">Archiver</button>
+            </div>
+          `).join('')}
+        </div>` : ''}
+
         ${alerts.total > 0 ? `
         <div class="app-card">
           <h2>${alerts.total} dossier${alerts.total > 1 ? 's' : ''} nécessite${alerts.total > 1 ? 'nt' : ''} votre attention</h2>
@@ -175,6 +251,13 @@
       document.getElementById('searchInput').addEventListener('input', (e) => { searchTerm = e.target.value; render(); });
       document.querySelectorAll('#chipFilters .app-chip').forEach(chip => {
         chip.addEventListener('click', () => { activeFilter = chip.dataset.filter || null; render(); });
+      });
+      document.querySelectorAll('[data-demande-action]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const statutMap = { valider: 'demande_validee', refuser: 'refusee', archiver: 'archivee' };
+          const { error } = await supabase.from('dossiers').update({ statut: statutMap[btn.dataset.demandeAction] }).eq('id', btn.dataset.demandeId);
+          if (!error) await loadAll();
+        });
       });
     }
 
