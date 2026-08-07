@@ -137,18 +137,23 @@ export default async function handler(req, res) {
   }
 
   // Détermine l'e-mail à envoyer selon le cas de figure.
+  // Important : Supabase refuse de régénérer un lien type 'invite' pour un compte
+  // qui existe déjà (même non confirmé) — "already registered". Pour relancer un
+  // compte existant qui ne s'est encore jamais connecté, il faut utiliser le type
+  // 'recovery' (fonctionne pour un compte confirmé ou non, et confirme l'e-mail
+  // au passage si ce n'était pas déjà fait).
   let subject, html;
   if (actionLink) {
     // Compte tout juste créé.
     subject = buildInviteSubject();
     html = buildInviteHtml({ dossier, actionLink });
-  } else if (accessRow.statut === 'invitation_envoyee') {
+  } else if (!existingUser.last_sign_in_at) {
     // Compte existant mais jamais activé (première invitation restée sans suite) : on relance.
     const { data: relink, error: relinkError } = await supabaseAdmin.auth.admin.generateLink({
-      type: 'invite', email: normalizedEmail, options: { redirectTo },
+      type: 'recovery', email: normalizedEmail, options: { redirectTo },
     });
     if (relinkError) {
-      return res.status(500).json({ error: 'Échec de la régénération du lien d\'invitation : ' + relinkError.message });
+      return res.status(500).json({ error: 'Échec de la régénération du lien d\'accès : ' + relinkError.message });
     }
     subject = buildResendInviteSubject();
     html = buildResendInviteHtml({ dossier, actionLink: relink.properties.action_link });
