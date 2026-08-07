@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nouveau mot de passe | Les Hortensias</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body class="app-body">
+  <div class="app-container narrow">
+    <div class="app-card app-login-card">
+      <div class="app-logo"><span>🌸</span><span>Les Hortensias</span></div>
+      <h2 style="text-align:center;">Choisir un nouveau mot de passe</h2>
+      <div id="msgBox"></div>
+      <form id="pwdForm">
+        <div class="app-field">
+          <label for="password">Nouveau mot de passe</label>
+          <input type="password" id="password" required minlength="8" autocomplete="new-password" />
+          <p class="app-field-hint">8 caractères minimum.</p>
+        </div>
+        <div class="app-field">
+          <label for="password2">Confirmer le mot de passe</label>
+          <input type="password" id="password2" required minlength="8" autocomplete="new-password" />
+        </div>
+        <button type="submit" class="app-btn" style="width:100%;" id="submitBtn">Valider</button>
+      </form>
+    </div>
+  </div>
+
+  <script type="module">
+    import { getSupabaseClient } from './lib/supabaseClient.js';
+
+    const msgBox = document.getElementById('msgBox');
+    const form = document.getElementById('pwdForm');
+    const submitBtn = document.getElementById('submitBtn');
+
+    function showMsg(text, type = 'error') {
+      msgBox.innerHTML = `<div class="app-msg app-msg-${type}">${text}</div>`;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const p1 = document.getElementById('password').value;
+      const p2 = document.getElementById('password2').value;
+      if (p1 !== p2) { showMsg('Les deux mots de passe ne correspondent pas.'); return; }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Enregistrement…';
+      try {
+        const supabase = await getSupabaseClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) {
+          showMsg('Lien invalide ou expiré. Merci de refaire une demande de réinitialisation depuis la page de connexion.');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Valider';
+          return;
+        }
+        const { error } = await supabase.auth.updateUser({ password: p1 });
+        if (error) throw error;
+
+        const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+        showMsg('Mot de passe mis à jour. Redirection…', 'success');
+        setTimeout(() => {
+          window.location.href = (profile && profile.role === 'admin') ? 'admin/dashboard.html' : 'espace-ecole/dashboard.html';
+        }, 1200);
+      } catch (error) {
+        showMsg(error.message || 'Échec de la mise à jour du mot de passe.');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Valider';
+      }
+    });
+  </script>
+</body>
+</html>

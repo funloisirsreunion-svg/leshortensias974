@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tableau de bord — Administration | Les Hortensias</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../app.css" />
+</head>
+<body class="app-body">
+
+  <div class="app-topbar">
+    <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
+    <div class="app-user">
+      <span id="userLabel"></span>
+      <a href="nouveau-dossier.html" class="app-btn app-btn-sm">+ Nouveau dossier</a>
+      <button class="app-logout" id="logoutBtn">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="app-container" id="appRoot">
+    <div class="app-loading">Chargement…</div>
+  </div>
+
+  <script type="module">
+    import { getSupabaseClient } from '../lib/supabaseClient.js';
+    import { STATUTS, labelOf, formatDateFr, formatMontant } from '../lib/appConstants.js';
+
+    const root = document.getElementById('appRoot');
+    let supabase, dossiers = [], documentsCount = {}, activeFilter = null, searchTerm = '';
+
+    function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    async function init() {
+      try { supabase = await getSupabaseClient(); }
+      catch (e) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(e.message)}</div>`; return; }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { window.location.href = 'index.html'; return; }
+
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+      if (!profile || profile.role !== 'admin') { await supabase.auth.signOut(); window.location.href = 'index.html'; return; }
+      document.getElementById('userLabel').textContent = profile.full_name || profile.email || '';
+
+      supabase.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') window.location.href = 'index.html'; });
+
+      await loadAll();
+    }
+
+    async function loadAll() {
+      const { data: d, error } = await supabase.from('dossiers').select('*').order('created_at', { ascending: false });
+      if (error) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(error.message)}</div>`; return; }
+      dossiers = d || [];
+
+      const { data: docs } = await supabase.from('documents').select('dossier_id, type, statut');
+      documentsCount = {};
+      (docs || []).forEach(doc => {
+        if (!documentsCount[doc.dossier_id]) documentsCount[doc.dossier_id] = { total: 0, valides: 0 };
+        if (doc.statut !== 'non_requis') documentsCount[doc.dossier_id].total++;
+        if (doc.statut === 'valide') documentsCount[doc.dossier_id].valides++;
+      });
+
+      render();
+    }
+
+    function today() { return new Date().toISOString().slice(0, 10); }
+
+    function matchesFilter(d, filter) {
+      const t = today();
+      switch (filter) {
+        case 'a_venir': return !['annule', 'cloture', 'sejour_termine'].includes(d.statut) && (d.date_confirmee_debut ? d.date_confirmee_debut > t : true);
+        case 'en_cours': return d.statut === 'sejour_en_cours' || (d.date_confirmee_debut && d.date_confirmee_fin && d.date_confirmee_debut <= t && d.date_confirmee_fin >= t);
+        case 'passes': return ['sejour_termine', 'facture_envoyee', 'solde_attendu', 'solde', 'cloture'].includes(d.statut);
+        case 'annules': return d.statut === 'annule';
+        case 'acomptes_manquants': return d.acompte_attendu && (!d.acompte_recu || Number(d.acompte_recu) < Number(d.acompte_attendu));
+        case 'incomplets': return d.statut === 'dossier_incomplet';
+        case 'soldes': return d.statut === 'solde_attendu' || (d.montant_facture && Number(d.montant_paye || 0) < Number(d.montant_facture));
+        case 'nature': return d.programme === 'nature';
+        case 'volcan': return d.programme === 'volcan';
+        default: return true;
+      }
+    }
+
+    function matchesSearch(d, term) {
+      if (!term) return true;
+      const hay = `${d.etablissement || ''} ${d.commune || ''} ${d.numero || ''}`.toLowerCase();
+      return hay.includes(term.toLowerCase());
+    }
+
+    function filteredDossiers() {
+      return dossiers.filter(d => matchesFilter(d, activeFilter) && matchesSearch(d, searchTerm));
+    }
+
+    function buildAlerts() {
+      const acomptesManquants = dossiers.filter(d => matchesFilter(d, 'acomptes_manquants')).length;
+      const devisNonSignes = dossiers.filter(d => ['devis_envoye'].includes(d.statut)).length;
+      const incomplets = dossiers.filter(d => d.statut === 'dossier_incomplet').length;
+      const soldes = dossiers.filter(d => matchesFilter(d, 'soldes')).length;
+      const total = acomptesManquants + devisNonSignes + incomplets + soldes;
+      return { acomptesManquants, devisNonSignes, incomplets, soldes, total };
+    }
+
+    function docBadge(dossierId) {
+      const c = documentsCount[dossierId];
+      if (!c || !c.total) return '—';
+      const cls = c.valides === c.total ? 'app-badge-green' : (c.valides === 0 ? 'app-badge-red' : 'app-badge-orange');
+      return `<span class="app-badge ${cls}">${c.valides}/${c.total}</span>`;
+    }
+
+    function render() {
+      const alerts = buildAlerts();
+      const list = filteredDossiers();
+
+      root.innerHTML = `
+        ${alerts.total > 0 ? `
+        <div class="app-card">
+          <h2>${alerts.total} dossier${alerts.total > 1 ? 's' : ''} nécessite${alerts.total > 1 ? 'nt' : ''} votre attention</h2>
+          <ul class="app-todo-list">
+            ${alerts.acomptesManquants ? `<li><span class="app-todo-dot"></span>${alerts.acomptesManquants} acompte(s) manquant(s)</li>` : ''}
+            ${alerts.devisNonSignes ? `<li><span class="app-todo-dot"></span>${alerts.devisNonSignes} devis en attente de signature</li>` : ''}
+            ${alerts.incomplets ? `<li><span class="app-todo-dot"></span>${alerts.incomplets} dossier(s) incomplet(s)</li>` : ''}
+            ${alerts.soldes ? `<li><span class="app-todo-dot"></span>${alerts.soldes} solde(s) en attente</li>` : ''}
+          </ul>
+        </div>` : ''}
+
+        <div class="app-card">
+          <div class="app-filters">
+            <input type="search" id="searchInput" placeholder="Rechercher école, commune, numéro…" value="${esc(searchTerm)}" style="flex:1;min-width:220px;" />
+          </div>
+          <div class="app-filters" id="chipFilters">
+            ${['a_venir', 'en_cours', 'passes', 'annules', 'acomptes_manquants', 'incomplets', 'soldes', 'nature', 'volcan'].map(f => `
+              <span class="app-chip ${activeFilter === f ? 'active' : ''}" data-filter="${f}">${chipLabel(f)}</span>
+            `).join('')}
+            ${activeFilter ? `<span class="app-chip" data-filter="">✕ Effacer</span>` : ''}
+          </div>
+
+          <div class="app-table-wrap">
+            <table class="app-table">
+              <thead><tr>
+                <th>Dossier</th><th>École</th><th>Commune</th><th>Programme</th><th>Durée</th>
+                <th>Dates</th><th>Effectif déf.</th><th>Devis</th><th>Acompte</th><th>Part mairie</th>
+                <th>Documents</th><th>Facturé</th><th>Payé</th><th>Reste</th><th>Statut</th><th></th>
+              </tr></thead>
+              <tbody>
+                ${list.map(d => `
+                  <tr>
+                    <td><a class="row-link" href="dossier.html?id=${d.id}">${esc(d.numero)}</a></td>
+                    <td>${esc(d.etablissement)}</td>
+                    <td>${esc(d.commune || '—')}</td>
+                    <td>${d.programme === 'volcan' ? 'Volcan' : d.programme === 'nature' ? 'Nature' : '—'}</td>
+                    <td>${d.duree ? d.duree + 'j' : '—'}</td>
+                    <td>${d.date_confirmee_debut ? formatDateFr(d.date_confirmee_debut) : (d.date_proposee ? formatDateFr(d.date_proposee) + ' (proposée)' : '—')}</td>
+                    <td>${d.effectif_def_eleves ?? '—'}</td>
+                    <td>${formatMontant(d.montant_devis)}</td>
+                    <td>${formatMontant(d.acompte_recu)} / ${formatMontant(d.acompte_attendu)}</td>
+                    <td>${formatMontant(d.part_mairie_recue)} / ${formatMontant(d.part_mairie_prevue)}</td>
+                    <td>${docBadge(d.id)}</td>
+                    <td>${formatMontant(d.montant_facture)}</td>
+                    <td>${formatMontant(d.montant_paye)}</td>
+                    <td>${d.montant_facture != null ? formatMontant(Number(d.montant_facture) - Number(d.montant_paye || 0)) : '—'}</td>
+                    <td><span class="app-badge app-badge-gray">${labelOf(STATUTS, d.statut)}</span></td>
+                    <td><a class="app-btn app-btn-sm app-btn-outline" href="dossier.html?id=${d.id}">Ouvrir</a></td>
+                  </tr>
+                `).join('') || `<tr><td colspan="16" style="text-align:center;padding:30px;">Aucun dossier ne correspond.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('searchInput').addEventListener('input', (e) => { searchTerm = e.target.value; render(); });
+      document.querySelectorAll('#chipFilters .app-chip').forEach(chip => {
+        chip.addEventListener('click', () => { activeFilter = chip.dataset.filter || null; render(); });
+      });
+    }
+
+    function chipLabel(f) {
+      return {
+        a_venir: 'À venir', en_cours: 'En cours', passes: 'Passés', annules: 'Annulés',
+        acomptes_manquants: 'Acomptes manquants', incomplets: 'Dossiers incomplets', soldes: 'Soldes en attente',
+        nature: 'Nature', volcan: 'Volcan',
+      }[f];
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      const supabase = await getSupabaseClient();
+      await supabase.auth.signOut();
+      window.location.href = 'index.html';
+    });
+
+    init();
+  </script>
+</body>
+</html>

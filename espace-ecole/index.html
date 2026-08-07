@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Connexion — Espace Écoles | Les Hortensias</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../app.css" />
+</head>
+<body class="app-body">
+  <div class="app-container narrow">
+    <div class="app-card app-login-card">
+      <div class="app-logo"><span>🌸</span><span>Les Hortensias — Espace Écoles</span></div>
+
+      <div id="msgBox"></div>
+
+      <form id="loginForm">
+        <div class="app-field">
+          <label for="email">Adresse e-mail</label>
+          <input type="email" id="email" required autocomplete="username" />
+        </div>
+        <div class="app-field">
+          <label for="password">Mot de passe</label>
+          <input type="password" id="password" required autocomplete="current-password" />
+        </div>
+        <button type="submit" class="app-btn" style="width:100%;" id="submitBtn">Se connecter</button>
+      </form>
+
+      <p style="text-align:center;margin-top:16px;">
+        <a href="#" id="forgotLink" style="font-size:.85rem;color:var(--vert-fonce);">Mot de passe oublié ?</a>
+      </p>
+      <p style="text-align:center;margin-top:20px;font-size:.82rem;color:var(--texte-clair);">
+        Cet espace est réservé aux établissements scolaires dont le dossier a été créé par Fun Loisirs Réunion.
+        <br/>Pas encore d'accès ? <a href="../contact.html" style="color:var(--vert-fonce);font-weight:700;">Contactez-nous</a>.
+      </p>
+    </div>
+  </div>
+
+  <script type="module">
+    import { getSupabaseClient } from '../lib/supabaseClient.js';
+
+    const msgBox = document.getElementById('msgBox');
+    const form = document.getElementById('loginForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const forgotLink = document.getElementById('forgotLink');
+
+    function showMsg(text, type = 'error') {
+      msgBox.innerHTML = `<div class="app-msg app-msg-${type}">${text}</div>`;
+    }
+
+    async function redirectIfLoggedIn() {
+      try {
+        const supabase = await getSupabaseClient();
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) window.location.href = 'dashboard.html';
+      } catch (e) { /* configuration pas prête, on laisse l'utilisateur sur le login */ }
+    }
+    redirectIfLoggedIn();
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Connexion…';
+      try {
+        const supabase = await getSupabaseClient();
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        window.location.href = 'dashboard.html';
+      } catch (error) {
+        showMsg(error.message === 'Invalid login credentials'
+          ? 'E-mail ou mot de passe incorrect.'
+          : (error.message || 'Échec de la connexion.'));
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Se connecter';
+      }
+    });
+
+    forgotLink.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim();
+      if (!email) { showMsg('Saisissez votre e-mail ci-dessus puis cliquez à nouveau sur "Mot de passe oublié".', 'info'); return; }
+      try {
+        const supabase = await getSupabaseClient();
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: window.location.origin + '/reinitialiser-mot-de-passe.html',
+        });
+        if (error) throw error;
+        showMsg('Si un compte existe avec cette adresse, un e-mail de réinitialisation vient d\'être envoyé.', 'success');
+      } catch (error) {
+        showMsg(error.message || 'Échec de l\'envoi de l\'e-mail.');
+      }
+    });
+  </script>
+</body>
+</html>

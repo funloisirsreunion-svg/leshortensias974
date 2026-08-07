@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nouveau dossier — Administration | Les Hortensias</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../app.css" />
+</head>
+<body class="app-body">
+  <div class="app-topbar">
+    <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
+    <div class="app-user">
+      <a href="dashboard.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Tableau de bord</a>
+      <button class="app-logout" id="logoutBtn">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="app-container" style="max-width:700px;">
+    <div class="app-card">
+      <h2>Nouveau dossier séjour</h2>
+      <div id="msgBox"></div>
+      <form id="form">
+        <div class="app-field"><label>Établissement *</label><input type="text" name="etablissement" required /></div>
+        <div class="app-grid-2">
+          <div class="app-field"><label>Commune</label><input type="text" name="commune" /></div>
+          <div class="app-field"><label>Adresse</label><input type="text" name="adresse" /></div>
+        </div>
+        <div class="app-grid-2">
+          <div class="app-field"><label>Contact (nom)</label><input type="text" name="contact_nom" /></div>
+          <div class="app-field"><label>Téléphone contact</label><input type="text" name="contact_telephone" /></div>
+        </div>
+        <div class="app-field"><label>E-mail contact</label><input type="email" name="contact_email" /></div>
+        <div class="app-grid-2">
+          <div class="app-field"><label>Programme</label>
+            <select name="programme"><option value="">—</option><option value="nature">Nature</option><option value="volcan">Volcan</option></select>
+          </div>
+          <div class="app-field"><label>Durée</label>
+            <select name="duree"><option value="">—</option><option value="3">3 jours</option><option value="4">4 jours</option><option value="5">5 jours</option></select>
+          </div>
+        </div>
+        <div class="app-field"><label>Période souhaitée (texte libre)</label><input type="text" name="periode_souhaitee" placeholder="Ex : mars ou avril 2027" /></div>
+        <button type="submit" class="app-btn" id="submitBtn">Créer le dossier</button>
+      </form>
+    </div>
+  </div>
+
+  <script type="module">
+    import { getSupabaseClient } from '../lib/supabaseClient.js';
+
+    const msgBox = document.getElementById('msgBox');
+    const form = document.getElementById('form');
+    const submitBtn = document.getElementById('submitBtn');
+    let supabase;
+
+    function showMsg(text, type = 'error') { msgBox.innerHTML = `<div class="app-msg app-msg-${type}">${text}</div>`; }
+
+    async function init() {
+      supabase = await getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { window.location.href = 'index.html'; return; }
+    }
+    init();
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      submitBtn.disabled = true; submitBtn.textContent = 'Création…';
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const fd = new FormData(form);
+        const body = Object.fromEntries(fd.entries());
+        const res = await fetch('/api/admin/create-dossier', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify(body),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Échec de la création.');
+        window.location.href = `dossier.html?id=${json.dossier.id}`;
+      } catch (error) {
+        showMsg(error.message);
+        submitBtn.disabled = false; submitBtn.textContent = 'Créer le dossier';
+      }
+    });
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await supabase.auth.signOut();
+      window.location.href = 'index.html';
+    });
+  </script>
+</body>
+</html>

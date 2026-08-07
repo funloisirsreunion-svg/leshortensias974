@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dossier — Administration | Les Hortensias</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../app.css" />
+</head>
+<body class="app-body">
+  <div class="app-topbar">
+    <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
+    <div class="app-user">
+      <a href="dashboard.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Tableau de bord</a>
+      <button class="app-logout" id="logoutBtn">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="app-container" id="appRoot">
+    <div class="app-loading">Chargement du dossier…</div>
+  </div>
+
+  <script type="module">
+    import { getSupabaseClient } from '../lib/supabaseClient.js';
+    import { STATUTS, DOCUMENTS, DOC_STATUTS, REGIMES, NIVEAUX, labelOf, formatDateFr, formatMontant } from '../lib/appConstants.js';
+
+    const params = new URLSearchParams(window.location.search);
+    const dossierId = params.get('id');
+    const root = document.getElementById('appRoot');
+    let supabase, session, dossier, regimes, documents, paiements, signalements, historique;
+
+    function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function opt(list, val, key='value', lab='label') {
+      return list.map(o => `<option value="${o[key]}" ${o[key]===val?'selected':''}>${o[lab]}</option>`).join('');
+    }
+
+    async function init() {
+      if (!dossierId) { root.innerHTML = `<div class="app-msg app-msg-error">Dossier non spécifié.</div>`; return; }
+      try { supabase = await getSupabaseClient(); }
+      catch (e) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(e.message)}</div>`; return; }
+
+      const { data: { session: s } } = await supabase.auth.getSession();
+      if (!s) { window.location.href = 'index.html'; return; }
+      session = s;
+
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+      if (!profile || profile.role !== 'admin') { await supabase.auth.signOut(); window.location.href = 'index.html'; return; }
+
+      await loadAll();
+    }
+
+    async function loadAll() {
+      const [{ data: d, error: dErr }, { data: r }, { data: docs }, { data: pmts }, { data: sig }, { data: hist }, { data: teacher }] = await Promise.all([
+        supabase.from('dossiers').select('*').eq('id', dossierId).single(),
+        supabase.from('regimes_alimentaires').select('*').eq('dossier_id', dossierId).order('type'),
+        supabase.from('documents').select('*').eq('dossier_id', dossierId),
+        supabase.from('paiements').select('*').eq('dossier_id', dossierId).order('date_paiement', { ascending: false }),
+        supabase.from('signalements_paiement').select('*').eq('dossier_id', dossierId).order('created_at', { ascending: false }),
+        supabase.from('statuts_historique').select('*').eq('dossier_id', dossierId).order('changed_at', { ascending: false }),
+        supabase.from('profiles').select('*').eq('dossier_id', dossierId).eq('role', 'enseignant').maybeSingle(),
+      ]);
+      if (dErr || !d) { root.innerHTML = `<div class="app-msg app-msg-error">Dossier introuvable.</div>`; return; }
+      dossier = d; regimes = r || []; documents = docs || []; paiements = pmts || []; signalements = sig || []; historique = hist || [];
+      window.__teacher = teacher || null;
+      render();
+    }
+
+    function render() {
+      const teacher = window.__teacher;
+      const reste = dossier.montant_facture != null ? Number(dossier.montant_facture) - Number(dossier.montant_paye || 0) : null;
+
+      root.innerHTML = `
+        <div class="app-card">
+          <h2>${esc(dossier.etablissement)} — <span style="color:var(--or);">${esc(dossier.numero)}</span></h2>
+          <div id="msgGeneral"></div>
+          <form id="generalForm">
+            <div class="app-grid-2">
+              <div class="app-field"><label>Établissement</label><input type="text" name="etablissement" value="${esc(dossier.etablissement)}" required /></div>
+              <div class="app-field"><label>Commune</label><input type="text" name="commune" value="${esc(dossier.commune)}" /></div>
+            </div>
+            <div class="app-field"><label>Adresse</label><input type="text" name="adresse" value="${esc(dossier.adresse)}" /></div>
+            <div class="app-grid-3">
+              <div class="app-field"><label>Contact</label><input type="text" name="contact_nom" value="${esc(dossier.contact_nom)}" /></div>
+              <div class="app-field"><label>Téléphone</label><input type="text" name="contact_telephone" value="${esc(dossier.contact_telephone)}" /></div>
+              <div class="app-field"><label>E-mail</label><input type="email" name="contact_email" value="${esc(dossier.contact_email)}" /></div>
+            </div>
+            <div class="app-grid-3">
+              <div class="app-field"><label>Programme</label><select name="programme"><option value="">—</option>${opt([{value:'nature',label:'Nature'},{value:'volcan',label:'Volcan'}], dossier.programme)}</select></div>
+              <div class="app-field"><label>Durée</label><select name="duree"><option value="">—</option>${opt([{value:'3',label:'3 jours'},{value:'4',label:'4 jours'},{value:'5',label:'5 jours'}], String(dossier.duree||''))}</select></div>
+              <div class="app-field"><label>Statut</label><select name="statut">${opt(STATUTS, dossier.statut)}</select></div>
+            </div>
+            <div class="app-field"><label>Période souhaitée (enseignant)</label><input type="text" name="periode_souhaitee" value="${esc(dossier.periode_souhaitee)}" readonly style="background:var(--gris-clair);" /></div>
+            <div class="app-grid-3">
+              <div class="app-field"><label>Date proposée</label><input type="date" name="date_proposee" value="${dossier.date_proposee||''}" /></div>
+              <div class="app-field"><label>Date confirmée — arrivée</label><input type="date" name="date_confirmee_debut" value="${dossier.date_confirmee_debut||''}" /></div>
+              <div class="app-field"><label>Date confirmée — départ</label><input type="date" name="date_confirmee_fin" value="${dossier.date_confirmee_fin||''}" /></div>
+            </div>
+            <button type="submit" class="app-btn">Enregistrer</button>
+          </form>
+        </div>
+
+        <div class="app-card">
+          <h2>Partie financière</h2>
+          <div id="msgFinance"></div>
+          <form id="financeForm">
+            <div class="app-grid-3">
+              <div class="app-field"><label>Montant devis (€)</label><input type="number" step="0.01" name="montant_devis" value="${dossier.montant_devis ?? ''}" /></div>
+              <div class="app-field"><label>Acompte attendu (€)</label><input type="number" step="0.01" name="acompte_attendu" value="${dossier.acompte_attendu ?? ''}" /></div>
+              <div class="app-field"><label>Acompte reçu (€)</label><input type="number" step="0.01" name="acompte_recu" value="${dossier.acompte_recu ?? ''}" /></div>
+            </div>
+            <div class="app-grid-3">
+              <div class="app-field"><label>Date acompte</label><input type="date" name="date_acompte" value="${dossier.date_acompte||''}" /></div>
+              <div class="app-field"><label>Part mairie prévue (€)</label><input type="number" step="0.01" name="part_mairie_prevue" value="${dossier.part_mairie_prevue ?? ''}" /></div>
+              <div class="app-field"><label>Part mairie reçue (€)</label><input type="number" step="0.01" name="part_mairie_recue" value="${dossier.part_mairie_recue ?? ''}" /></div>
+            </div>
+            <div class="app-field" style="max-width:240px;"><label>Montant facturé (€)</label><input type="number" step="0.01" name="montant_facture" value="${dossier.montant_facture ?? ''}" /></div>
+            <button type="submit" class="app-btn">Enregistrer</button>
+          </form>
+          <div class="app-grid-3" style="margin-top:18px;">
+            <div class="app-kpi"><div class="app-kpi-num">${formatMontant(dossier.montant_paye)}</div><div class="app-kpi-label">Total payé (calculé)</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${reste != null ? formatMontant(reste) : '—'}</div><div class="app-kpi-label">Reste à payer</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${paiements.length}</div><div class="app-kpi-label">Paiement(s) enregistré(s)</div></div>
+          </div>
+
+          <h3>Paiements</h3>
+          <div id="msgPaiement"></div>
+          <div class="app-table-wrap"><table class="app-table" style="min-width:0;">
+            <thead><tr><th>Date</th><th>Type</th><th>Montant</th><th>Note</th></tr></thead>
+            <tbody>${paiements.map(p => `<tr><td>${formatDateFr(p.date_paiement)}</td><td>${esc(p.type)}</td><td>${formatMontant(p.montant)}</td><td>${esc(p.note||'')}</td></tr>`).join('') || '<tr><td colspan="4" style="text-align:center;padding:14px;">Aucun paiement enregistré.</td></tr>'}</tbody>
+          </table></div>
+          <form id="paiementForm" style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
+            <div class="app-field" style="margin:0;"><label>Montant (€)</label><input type="number" step="0.01" name="montant" required style="width:120px;" /></div>
+            <div class="app-field" style="margin:0;"><label>Type</label>
+              <select name="type"><option value="acompte">Acompte</option><option value="part_mairie">Part mairie</option><option value="solde">Solde</option><option value="autre">Autre</option></select>
+            </div>
+            <div class="app-field" style="margin:0;"><label>Date</label><input type="date" name="date_paiement" value="${today()}" /></div>
+            <div class="app-field" style="margin:0;flex:1;min-width:160px;"><label>Note</label><input type="text" name="note" /></div>
+            <button type="submit" class="app-btn app-btn-sm">Ajouter</button>
+          </form>
+
+          ${signalements.filter(s => s.statut === 'a_verifier').length ? `
+          <h3>Virements signalés par l'école (à vérifier)</h3>
+          <div id="msgSignalement"></div>
+          ${signalements.filter(s => s.statut === 'a_verifier').map(s => `
+            <div class="app-doc-row">
+              <span class="app-doc-name">${formatMontant(s.montant)} — ${formatDateFr(s.date_virement)} ${s.note ? '— ' + esc(s.note) : ''}</span>
+              <button class="app-btn app-btn-sm" data-rapprocher="${s.id}" data-montant="${s.montant}" data-date="${s.date_virement}">Enregistrer comme paiement</button>
+              <button class="app-btn app-btn-sm app-btn-outline" data-ignorer="${s.id}">Ignorer</button>
+            </div>
+          `).join('')}` : ''}
+        </div>
+
+        <div class="app-card">
+          <h2>Documents</h2>
+          <div id="msgDocs"></div>
+          ${DOCUMENTS.map(dt => {
+            const doc = documents.find(x => x.type === dt.value) || { statut: 'a_fournir', type: dt.value };
+            return `
+            <div class="app-doc-row">
+              <span class="app-doc-name">${dt.label}</span>
+              ${doc.file_name ? `<a href="#" data-download="${doc.storage_path}" style="font-size:.82rem;color:var(--vert-fonce);">${esc(doc.file_name)}</a>` : '<span style="font-size:.8rem;color:var(--texte-clair);">Aucun fichier</span>'}
+              <select data-doc-statut="${dt.value}" style="padding:6px 10px;border-radius:6px;border:1px solid var(--beige-fonce);">${opt(DOC_STATUTS, doc.statut)}</select>
+            </div>`;
+          }).join('')}
+        </div>
+
+        <div class="app-card">
+          <h2>Effectifs, niveaux &amp; régimes alimentaires</h2>
+          <div id="msgEffectifs"></div>
+          <form id="effectifsForm">
+            <h3>Niveaux</h3>
+            <div class="app-grid-3">
+              ${NIVEAUX.map(n => `<div class="app-field"><label>${n.label}</label><input type="number" min="0" name="niveau_${n.key}" value="${(dossier.niveaux && dossier.niveaux[n.key]) || 0}" /></div>`).join('')}
+            </div>
+            <h3>Effectifs prévisionnels</h3>
+            <div class="app-grid-3">
+              <div class="app-field"><label>Élèves</label><input type="number" min="0" name="effectif_prev_eleves" value="${dossier.effectif_prev_eleves ?? ''}" /></div>
+              <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_prev_profs" value="${dossier.effectif_prev_profs ?? ''}" /></div>
+              <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_prev_accompagnateurs" value="${dossier.effectif_prev_accompagnateurs ?? ''}" /></div>
+            </div>
+            <h3>Effectifs définitifs</h3>
+            <div class="app-grid-3">
+              <div class="app-field"><label>Élèves</label><input type="number" min="0" name="effectif_def_eleves" value="${dossier.effectif_def_eleves ?? ''}" /></div>
+              <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_def_profs" value="${dossier.effectif_def_profs ?? ''}" /></div>
+              <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_def_accompagnateurs" value="${dossier.effectif_def_accompagnateurs ?? ''}" /></div>
+            </div>
+            <div class="app-field"><label>Remarques alimentaires</label><textarea name="remarques_alimentaires" rows="2">${esc(dossier.remarques_alimentaires)}</textarea></div>
+            <button type="submit" class="app-btn">Enregistrer</button>
+          </form>
+          <h3>Régimes alimentaires</h3>
+          <form id="regimesForm">
+            <div class="app-grid-3">
+              ${REGIMES.map(r => {
+                const row = regimes.find(x => x.type === r.value);
+                return `<div class="app-field"><label>${r.label}</label><input type="number" min="0" name="regime_${r.value}" value="${row ? row.nombre : 0}" /></div>`;
+              }).join('')}
+            </div>
+            <button type="submit" class="app-btn">Enregistrer les régimes</button>
+          </form>
+        </div>
+
+        <div class="app-card">
+          <h2>Accès enseignant</h2>
+          <div id="msgTeacher"></div>
+          ${teacher ? `
+            <p>Compte actif : <strong>${esc(teacher.email)}</strong> ${teacher.full_name ? '(' + esc(teacher.full_name) + ')' : ''}</p>
+            <button class="app-btn app-btn-sm app-btn-outline" id="resendAccessBtn" data-email="${esc(teacher.email)}" data-name="${esc(teacher.full_name||'')}">Réinitialiser / renvoyer les identifiants</button>
+          ` : `
+            <p style="font-size:.85rem;color:var(--texte-clair);margin-bottom:12px;">Aucun accès créé. À faire une fois le devis accepté.</p>
+            <form id="teacherForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
+              <div class="app-field" style="margin:0;"><label>Nom</label><input type="text" name="fullName" /></div>
+              <div class="app-field" style="margin:0;flex:1;min-width:200px;"><label>E-mail *</label><input type="email" name="email" required /></div>
+              <button type="submit" class="app-btn app-btn-sm">Créer l'accès</button>
+            </form>
+          `}
+        </div>
+
+        <div class="app-card">
+          <h2>Historique des statuts</h2>
+          <ul class="app-todo-list">
+            ${historique.map(h => `<li><span class="app-todo-dot"></span>${h.ancien_statut ? labelOf(STATUTS, h.ancien_statut) + ' → ' : ''}${labelOf(STATUTS, h.nouveau_statut)} — ${new Date(h.changed_at).toLocaleString('fr-FR')}</li>`).join('') || '<li>Aucun historique.</li>'}
+          </ul>
+        </div>
+      `;
+
+      bindEvents();
+    }
+
+    function today() { return new Date().toISOString().slice(0, 10); }
+    function showMsg(id, text, type='error') { const el = document.getElementById(id); if (el) el.innerHTML = `<div class="app-msg app-msg-${type}">${esc(text)}</div>`; }
+
+    function bindEvents() {
+      document.getElementById('generalForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const payload = {
+          etablissement: fd.get('etablissement'),
+          commune: fd.get('commune') || null,
+          adresse: fd.get('adresse') || null,
+          contact_nom: fd.get('contact_nom') || null,
+          contact_telephone: fd.get('contact_telephone') || null,
+          contact_email: fd.get('contact_email') || null,
+          programme: fd.get('programme') || null,
+          duree: fd.get('duree') ? Number(fd.get('duree')) : null,
+          statut: fd.get('statut'),
+          date_proposee: fd.get('date_proposee') || null,
+          date_confirmee_debut: fd.get('date_confirmee_debut') || null,
+          date_confirmee_fin: fd.get('date_confirmee_fin') || null,
+        };
+        const { error } = await supabase.from('dossiers').update(payload).eq('id', dossierId);
+        if (error) return showMsg('msgGeneral', error.message);
+        showMsg('msgGeneral', 'Enregistré.', 'success');
+        await loadAll();
+      });
+
+      document.getElementById('financeForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const num = (v) => (v === '' || v === null ? null : Number(v));
+        const payload = {
+          montant_devis: num(fd.get('montant_devis')),
+          acompte_attendu: num(fd.get('acompte_attendu')),
+          acompte_recu: num(fd.get('acompte_recu')),
+          date_acompte: fd.get('date_acompte') || null,
+          part_mairie_prevue: num(fd.get('part_mairie_prevue')),
+          part_mairie_recue: num(fd.get('part_mairie_recue')),
+          montant_facture: num(fd.get('montant_facture')),
+        };
+        const { error } = await supabase.from('dossiers').update(payload).eq('id', dossierId);
+        if (error) return showMsg('msgFinance', error.message);
+        showMsg('msgFinance', 'Enregistré.', 'success');
+        await loadAll();
+      });
+
+      document.getElementById('paiementForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const payload = {
+          dossier_id: dossierId,
+          montant: Number(fd.get('montant')),
+          type: fd.get('type'),
+          date_paiement: fd.get('date_paiement'),
+          note: fd.get('note') || null,
+          created_by: session.user.id,
+        };
+        const { error } = await supabase.from('paiements').insert(payload);
+        if (error) return showMsg('msgPaiement', error.message);
+        showMsg('msgPaiement', 'Paiement ajouté.', 'success');
+        await loadAll();
+      });
+
+      document.querySelectorAll('[data-rapprocher]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.rapprocher;
+          const montant = Number(btn.dataset.montant);
+          const date_paiement = btn.dataset.date;
+          const { data: paiement, error: pErr } = await supabase.from('paiements')
+            .insert({ dossier_id: dossierId, montant, type: 'autre', date_paiement, note: 'Rapproché depuis un signalement enseignant', created_by: session.user.id })
+            .select().single();
+          if (pErr) return showMsg('msgSignalement', pErr.message);
+          const { error: sErr } = await supabase.from('signalements_paiement')
+            .update({ statut: 'rapproche', paiement_id: paiement.id }).eq('id', id);
+          if (sErr) return showMsg('msgSignalement', sErr.message);
+          await loadAll();
+        });
+      });
+      document.querySelectorAll('[data-ignorer]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const { error } = await supabase.from('signalements_paiement').update({ statut: 'ignore' }).eq('id', btn.dataset.ignorer);
+          if (error) return showMsg('msgSignalement', error.message);
+          await loadAll();
+        });
+      });
+
+      document.querySelectorAll('[data-doc-statut]').forEach(sel => {
+        sel.addEventListener('change', async () => {
+          const type = sel.dataset.docStatut;
+          const statut = sel.value;
+          const payload = { statut };
+          if (statut === 'valide') { payload.validated_by = session.user.id; payload.validated_at = new Date().toISOString(); }
+          const { error } = await supabase.from('documents').update(payload).eq('dossier_id', dossierId).eq('type', type);
+          if (error) return showMsg('msgDocs', error.message);
+          showMsg('msgDocs', 'Statut mis à jour.', 'success');
+          await loadAll();
+        });
+      });
+      document.querySelectorAll('[data-download]').forEach(a => {
+        a.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const path = a.dataset.download;
+          if (!path) return;
+          const { data, error } = await supabase.storage.from('documents-dossiers').createSignedUrl(path, 60);
+          if (error) return showMsg('msgDocs', error.message);
+          window.open(data.signedUrl, '_blank');
+        });
+      });
+
+      document.getElementById('effectifsForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const niveaux = {};
+        NIVEAUX.forEach(n => { niveaux[n.key] = Number(fd.get(`niveau_${n.key}`)) || 0; });
+        const payload = {
+          niveaux,
+          effectif_prev_eleves: fd.get('effectif_prev_eleves') ? Number(fd.get('effectif_prev_eleves')) : null,
+          effectif_prev_profs: fd.get('effectif_prev_profs') ? Number(fd.get('effectif_prev_profs')) : null,
+          effectif_prev_accompagnateurs: fd.get('effectif_prev_accompagnateurs') ? Number(fd.get('effectif_prev_accompagnateurs')) : null,
+          effectif_def_eleves: fd.get('effectif_def_eleves') ? Number(fd.get('effectif_def_eleves')) : null,
+          effectif_def_profs: fd.get('effectif_def_profs') ? Number(fd.get('effectif_def_profs')) : null,
+          effectif_def_accompagnateurs: fd.get('effectif_def_accompagnateurs') ? Number(fd.get('effectif_def_accompagnateurs')) : null,
+          remarques_alimentaires: fd.get('remarques_alimentaires') || null,
+        };
+        const { error } = await supabase.from('dossiers').update(payload).eq('id', dossierId);
+        if (error) return showMsg('msgEffectifs', error.message);
+        showMsg('msgEffectifs', 'Enregistré.', 'success');
+        await loadAll();
+      });
+
+      document.getElementById('regimesForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        try {
+          for (const r of REGIMES) {
+            const nombre = Number(fd.get(`regime_${r.value}`)) || 0;
+            const { error } = await supabase.from('regimes_alimentaires').update({ nombre }).eq('dossier_id', dossierId).eq('type', r.value);
+            if (error) throw error;
+          }
+          showMsg('msgEffectifs', 'Régimes enregistrés.', 'success');
+          await loadAll();
+        } catch (error) { showMsg('msgEffectifs', error.message); }
+      });
+
+      const teacherForm = document.getElementById('teacherForm');
+      if (teacherForm) {
+        teacherForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const fd = new FormData(e.target);
+          await createTeacherAccess(fd.get('email'), fd.get('fullName'));
+        });
+      }
+      const resendBtn = document.getElementById('resendAccessBtn');
+      if (resendBtn) {
+        resendBtn.addEventListener('click', () => createTeacherAccess(resendBtn.dataset.email, resendBtn.dataset.name));
+      }
+    }
+
+    async function createTeacherAccess(email, fullName) {
+      showMsg('msgTeacher', 'Création en cours…', 'info');
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch('/api/admin/create-teacher', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({ dossierId, email, fullName }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Échec.');
+        if (json.emailSent) {
+          showMsg('msgTeacher', 'Identifiants envoyés par e-mail à l\'enseignant.', 'success');
+        } else {
+          showMsg('msgTeacher', `Compte créé mais l'e-mail n'a pas pu être envoyé (${esc(json.emailError||'')}). Mot de passe temporaire à transmettre vous-même : ${esc(json.tempPassword||'')}`, 'info');
+        }
+        await loadAll();
+      } catch (error) {
+        showMsg('msgTeacher', error.message);
+      }
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await supabase.auth.signOut();
+      window.location.href = 'index.html';
+    });
+
+    init();
+  </script>
+</body>
+</html>

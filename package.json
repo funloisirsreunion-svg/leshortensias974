@@ -6,6 +6,7 @@
   "dependencies": {
     "@vercel/blob": "^2.6.1",
     "@upstash/redis": "^1.34.3",
+    "@supabase/supabase-js": "^2.45.4",
     "resend": "^4.0.1",
     "formidable": "^3.5.4"
   }
