@@ -43,6 +43,35 @@
       msgBox.innerHTML = `<div class="app-msg app-msg-${type}">${text}</div>`;
     }
 
+    // Établit la session à partir du lien reçu par e-mail (token_hash + type),
+    // envoyé par nos propres fonctions serveur (api/admin/create-teacher.js,
+    // api/public/forgot-password.js) — indépendant de la configuration des URLs
+    // de redirection Supabase.
+    async function establishSessionFromLink() {
+      const params = new URLSearchParams(window.location.search);
+      const tokenHash = params.get('token_hash');
+      const type = params.get('type');
+      if (!tokenHash || !type) return true; // pas de lien à vérifier, on continue normalement
+
+      form.style.display = 'none';
+      showMsg('Vérification du lien…', 'info');
+      try {
+        const supabase = await getSupabaseClient();
+        const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
+        if (error) throw error;
+        // Nettoie l'URL (le token ne doit pas rester visible/partageable).
+        window.history.replaceState({}, '', window.location.pathname);
+        msgBox.innerHTML = '';
+        form.style.display = '';
+        return true;
+      } catch (error) {
+        showMsg('Ce lien est invalide ou a expiré. Merci de refaire une demande depuis la page de connexion.');
+        return false;
+      }
+    }
+
+    establishSessionFromLink();
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const p1 = document.getElementById('password').value;

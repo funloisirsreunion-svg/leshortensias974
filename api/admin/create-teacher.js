@@ -21,6 +21,15 @@ function siteUrl() {
   return process.env.SITE_URL || 'https://leshortensias974.fr';
 }
 
+// On construit nous-mêmes le lien vers reinitialiser-mot-de-passe.html (token_hash + type)
+// plutôt que d'utiliser action_link (qui redirige via l'endpoint de vérification Supabase,
+// dépendant du "Site URL" / "Redirect URLs" configurés dans le dashboard Supabase — non
+// configuré sur un projet fraîchement provisionné, ce qui renvoyait vers localhost:3000).
+// La page appelle ensuite supabase.auth.verifyOtp({ token_hash, type }) côté client.
+function buildOwnLink(hashedToken, type) {
+  return `${siteUrl()}/reinitialiser-mot-de-passe.html?token_hash=${encodeURIComponent(hashedToken)}&type=${type}`;
+}
+
 async function findUserByEmail(supabaseAdmin, email) {
   // L'API admin de Supabase (JS) ne permet pas de filtrer par e-mail côté serveur ;
   // à l'échelle de ce site (quelques dizaines/centaines de comptes), une pagination
@@ -111,7 +120,7 @@ export default async function handler(req, res) {
     });
     if (genError) return res.status(500).json({ error: 'Échec de la génération du lien d\'invitation : ' + genError.message });
     userId = generated.user.id;
-    actionLink = generated.properties.action_link;
+    actionLink = buildOwnLink(generated.properties.hashed_token, 'invite');
     isNewAccount = true;
     const { error: profileError } = await supabaseAdmin.from('profiles').upsert({
       id: userId, role: 'enseignant', full_name: fullName || null, email: normalizedEmail,
@@ -156,7 +165,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Échec de la régénération du lien d\'accès : ' + relinkError.message });
     }
     subject = buildResendInviteSubject();
-    html = buildResendInviteHtml({ dossier, actionLink: relink.properties.action_link });
+    html = buildResendInviteHtml({ dossier, actionLink: buildOwnLink(relink.properties.hashed_token, 'recovery') });
   } else {
     // Compte déjà actif : simple rattachement à un nouveau dossier (ou rappel d'accès).
     subject = buildNewDossierLinkedSubject(dossier);

@@ -86,11 +86,12 @@
       const email = document.getElementById('email').value.trim();
       if (!email) { showMsg('Saisissez votre e-mail ci-dessus puis cliquez à nouveau sur "Mot de passe oublié".', 'info'); return; }
       try {
-        const supabase = await getSupabaseClient();
-        const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: window.location.origin + '/reinitialiser-mot-de-passe.html',
+        const res = await fetch('/api/public/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
         });
-        if (error) throw error;
+        if (!res.ok) throw new Error('Échec de la demande.');
         showMsg('Si un compte existe avec cette adresse, un e-mail de réinitialisation vient d\'être envoyé.', 'success');
       } catch (error) {
         showMsg(error.message || 'Échec de l\'envoi de l\'e-mail.');
