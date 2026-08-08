@@ -1,42 +1,45 @@
 // ================================================================
-//  CONFIGURATION DES COLONIES
-//  Pour ajouter un séjour : ajouter un objet dans ce tableau.
-//  Le formulaire se met à jour automatiquement — aucune autre
-//  modification du code n'est nécessaire.
+//  SÉJOURS COLONIE — chargés dynamiquement depuis Supabase (table
+//  colony_stays, créée/gérée depuis l'espace Admin). Aucune configuration
+//  codée en dur ici : un nouveau séjour créé par l'admin apparaît
+//  automatiquement dans ce formulaire, sans déploiement de code.
 // ================================================================
-const COLONIES = [
-  {
-    id: 'colo-octobre-2026',
-    nom: 'Colonie d\'Octobre 2026 — 11 au 22 oct.',
-    ages: '6 – 14 ans',
-    ageMin: 6,
-    ageMax: 14,
-    publicAccueilli: 'Enfants et adolescents de 6 à 14 ans',
-    tarif: 600,
-    tarifCAF: 180,
-    duree: '12 jours (11 au 22 octobre 2026)',
-    dateDebut: '2026-10-11',
-    dateFin: '2026-10-22',
-    aides: 'Aide CAF jusqu\'à 420 € → reste à charge 180 € · Pass Colo · VACAF',
-    description: '12 jours d\'aventure à La Plaine-des-Palmistes : Laser Game, Accro Roc, sortie au zoo, Piscine, Parc du Colosse, randonnées et veillées animées.',
-  },
-  // ── Ajouter un nouveau séjour en copiant le bloc ci-dessous ──
-  // {
-  //   id: 'colo-ete-2027',             // identifiant unique (pas d'espaces)
-  //   nom: 'Colonie Été 2027',          // nom affiché dans le formulaire
-  //   ages: '6 – 14 ans',
-  //   ageMin: 6,
-  //   ageMax: 14,
-  //   publicAccueilli: 'Enfants et adolescents de 6 à 14 ans',
-  //   tarif: 600,                       // tarif public en euros
-  //   tarifCAF: 180,                    // reste à charge avec aide CAF (optionnel)
-  //   duree: '12 jours',
-  //   dateDebut: '2027-07-05',          // AAAA-MM-JJ — utilisé pour le calcul d'âge et le PDF
-  //   dateFin: '2027-07-17',
-  //   aides: 'Aide CAF, Pass Colo et VACAF acceptés',
-  //   description: 'Description du séjour...',
-  // },
-];
+let COLONIES = [];
+
+async function fetchOpenColonyStays() {
+  const [{ createClient }, configRes] = await Promise.all([
+    import('https://esm.sh/@supabase/supabase-js@2'),
+    fetch('/api/public-config').then(r => r.json()),
+  ]);
+  const { supabaseUrl, supabaseAnonKey, configured } = configRes;
+  if (!configured) throw new Error('Plateforme d\'inscription indisponible pour le moment.');
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, { auth: { persistSession: false } });
+
+  const { data, error } = await supabase
+    .from('colony_stays')
+    .select('id,nom,date_debut,date_fin,duree_texte,tarif_public,tarif_caf_info,age_min,age_max,public_accueilli,description,aides_applicables')
+    .eq('public_registration_open', true)
+    .neq('statut', 'annule')
+    .is('archived_at', null)
+    .order('date_debut', { ascending: true });
+  if (error) throw error;
+
+  return (data || []).map(row => ({
+    id: row.id,
+    nom: row.nom,
+    ages: (row.age_min != null && row.age_max != null) ? `${row.age_min} – ${row.age_max} ans` : (row.public_accueilli || ''),
+    ageMin: row.age_min,
+    ageMax: row.age_max,
+    publicAccueilli: row.public_accueilli,
+    tarif: row.tarif_public,
+    tarifCafInfo: row.tarif_caf_info,
+    duree: row.duree_texte,
+    dateDebut: row.date_debut,
+    dateFin: row.date_fin,
+    aides: row.aides_applicables,
+    description: row.description,
+  }));
+}
 // ================================================================
 
 (function () {
@@ -78,13 +81,46 @@ const COLONIES = [
     return bytes > 1024 * 1024 ? (bytes / (1024 * 1024)).toFixed(1) + ' Mo' : Math.round(bytes / 1024) + ' Ko';
   }
 
-  // ── Peupler la liste des colonies ─────────────────────────
-  COLONIES.forEach(c => {
-    const opt = document.createElement('option');
-    opt.value = c.id;
-    opt.textContent = c.nom;
-    colonieSelect.appendChild(opt);
-  });
+  // ── Chargement dynamique des séjours ouverts (Supabase) ───
+  colonieSelect.disabled = true;
+  const loadingOpt = document.createElement('option');
+  loadingOpt.value = '';
+  loadingOpt.textContent = 'Chargement des séjours…';
+  colonieSelect.appendChild(loadingOpt);
+
+  (async () => {
+    try {
+      COLONIES = await fetchOpenColonyStays();
+    } catch (err) {
+      colonieSelect.innerHTML = '';
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Erreur de chargement — rechargez la page';
+      colonieSelect.appendChild(opt);
+      colonieInfo.innerHTML = `<p class="ci-desc">Impossible de charger la liste des séjours pour le moment. Merci de recharger la page ou de nous contacter directement.</p>`;
+      colonieInfo.style.display = 'block';
+      return;
+    }
+
+    colonieSelect.innerHTML = '<option value="">— Sélectionnez un séjour —</option>';
+    if (!COLONIES.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Aucun séjour ouvert aux inscriptions actuellement';
+      colonieSelect.appendChild(opt);
+      colonieInfo.innerHTML = `<p class="ci-desc">Aucun séjour n'est ouvert aux inscriptions pour le moment. Contactez-nous pour connaître les prochaines dates.</p>`;
+      colonieInfo.style.display = 'block';
+      colonieSelect.disabled = true;
+      return;
+    }
+    COLONIES.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      opt.textContent = c.nom;
+      colonieSelect.appendChild(opt);
+    });
+    colonieSelect.disabled = false;
+  })();
 
   // ── Info colonie dynamique ─────────────────────────────────
   colonieSelect.addEventListener('change', () => {
@@ -92,12 +128,12 @@ const COLONIES = [
     if (!c) { colonieInfo.style.display = 'none'; return; }
     colonieInfo.innerHTML = `
       <div class="colonie-info-box">
-        <div class="ci-row"><span>👦</span><div><strong>Âge</strong><span>${c.ages}</span></div></div>
-        <div class="ci-row"><span>📅</span><div><strong>Durée</strong><span>${c.duree}</span></div></div>
-        <div class="ci-row"><span>💰</span><div><strong>Tarif public</strong><span>${c.tarif} €</span></div></div>
-        ${c.tarifCAF ? `<div class="ci-row"><span>🎉</span><div><strong>Avec aide CAF/VACAF</strong><span style="color:var(--vert-fonce);font-weight:700;">${c.tarifCAF} € reste à charge</span></div></div>` : ''}
-        <div class="ci-row"><span>✅</span><div><strong>Aides acceptées</strong><span>${c.aides}</span></div></div>
-        <p class="ci-desc">${c.description}</p>
+        <div class="ci-row"><span>👦</span><div><strong>Âge</strong><span>${c.ages || '—'}</span></div></div>
+        <div class="ci-row"><span>📅</span><div><strong>Durée</strong><span>${c.duree || '—'}</span></div></div>
+        <div class="ci-row"><span>💰</span><div><strong>Tarif public</strong><span>${c.tarif != null ? c.tarif + ' €' : '—'}</span></div></div>
+        ${c.tarifCafInfo ? `<div class="ci-row"><span>🎉</span><div><strong>Avec aide CAF/VACAF</strong><span style="color:var(--vert-fonce);font-weight:700;">${c.tarifCafInfo}</span></div></div>` : ''}
+        ${c.aides ? `<div class="ci-row"><span>✅</span><div><strong>Aides acceptées</strong><span>${c.aides}</span></div></div>` : ''}
+        ${c.description ? `<p class="ci-desc">${c.description}</p>` : ''}
       </div>`;
     colonieInfo.style.display = 'block';
   });

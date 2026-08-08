@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Séjour Colonie — Administration | Les Hortensias</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../app.css" />
+  <style>
+    .kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    @media (min-width: 640px) { .kpi-grid { grid-template-columns: repeat(4, 1fr); } }
+    .arrivee-card { border: 2px solid var(--beige-fonce); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; }
+    .arrivee-card.ok { border-color: #2d5a27; }
+    .arrivee-card.warn { border-color: #a5650e; }
+    .arrivee-card.bad { border-color: #a5230e; }
+    .arrivee-name { font-weight: 700; font-size: 1.02rem; margin-bottom: 6px; }
+    .arrivee-lines span { display: block; font-size: .88rem; margin-bottom: 3px; }
+    th[data-sort] { cursor: pointer; user-select: none; white-space: nowrap; }
+    th[data-sort]:hover { color: var(--vert-fonce); }
+    .reg-row { cursor: pointer; }
+    .reg-row:hover { background: var(--gris-clair); }
+    .reg-detail-panel { border-top: 3px solid var(--vert-fonce); padding-top: 16px; margin-top: 8px; }
+  </style>
+</head>
+<body class="app-body">
+  <div class="app-topbar">
+    <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
+    <div class="app-user">
+      <a href="dashboard.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Tableau de bord</a>
+      <button class="app-logout" id="logoutBtn">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="app-container" id="appRoot">
+    <div class="app-loading">Chargement…</div>
+  </div>
+
+  <script type="module">
+    import { getSupabaseClient } from '../lib/supabaseClient.js';
+    import { slugify } from '../lib/slugify.js';
+    import {
+      COLONY_STAY_STATUTS, COLONY_REGISTRATION_STATUTS, ALL_DOCUMENT_TYPES, DOCUMENT_SOURCES, DOC_STATUTS,
+      JOURNAL_LABELS, labelOf, labelForDocumentType, formatDateFr, formatMontant, docCompleteness,
+    } from '../lib/appConstants.js';
+
+    const params = new URLSearchParams(window.location.search);
+    const stayId = params.get('id');
+    const isNew = params.get('new') === '1';
+    const root = document.getElementById('appRoot');
+
+    let supabase, session;
+    let stay = null, registrations = [], documentsByReg = {}, journal = [];
+    let viewMode = 'table'; // 'table' | 'arrivees'
+    let sortKey = 'enfant', sortDir = 'asc';
+    let searchTerm = '';
+    let selectedRegId = null;
+    let addingRegistration = false;
+    let showAllDossiers = false;
+
+    function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+    function opt(list, val, key='value', lab='label') {
+      return list.map(o => `<option value="${o[key]}" ${o[key]===val?'selected':''}>${o[lab]}</option>`).join('');
+    }
+    function showMsg(id, text, type='error') { const el = document.getElementById(id); if (el) el.innerHTML = `<div class="app-msg app-msg-${type}">${esc(text)}</div>`; }
+    function today() { return new Date().toISOString().slice(0, 10); }
+
+    async function init() {
+      try { supabase = await getSupabaseClient(); }
+      catch (e) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(e.message)}</div>`; return; }
+
+      const { data: { session: s } } = await supabase.auth.getSession();
+      if (!s) { window.location.href = 'index.html'; return; }
+      session = s;
+
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+      if (!profile || profile.role !== 'admin') { await supabase.auth.signOut(); window.location.href = 'index.html'; return; }
+
+      if (isNew) { renderNewStayForm(); return; }
+      if (!stayId) { root.innerHTML = `<div class="app-msg app-msg-error">Séjour non spécifié.</div>`; return; }
+      await loadAll();
+    }
+
+    async function loadAll() {
+      const [{ data: s, error: sErr }, { data: regs }, { data: journ }] = await Promise.all([
+        supabase.from('colony_stays').select('*').eq('id', stayId).single(),
+        supabase.from('colony_registrations').select('*').eq('stay_id', stayId).order('created_at', { ascending: false }),
+        supabase.from('dossier_journal').select('*').in('colony_registration_id',
+          (await supabase.from('colony_registrations').select('id').eq('stay_id', stayId)).data?.map(r => r.id) || ['00000000-0000-0000-0000-000000000000']
+        ).order('created_at', { ascending: false }).limit(30),
+      ]);
+      if (sErr || !s) { root.innerHTML = `<div class="app-msg app-msg-error">Séjour introuvable.</div>`; return; }
+      stay = s; registrations = regs || []; journal = journ || [];
+
+      const { data: docs } = await supabase.from('documents').select('*').in('colony_registration_id', registrations.map(r => r.id).length ? registrations.map(r => r.id) : ['00000000-0000-0000-0000-000000000000']);
+      documentsByReg = {};
+      (docs || []).forEach(d => { (documentsByReg[d.colony_registration_id] = documentsByReg[d.colony_registration_id] || []).push(d); });
+
+      render();
+    }
+
+    // ── Formulaire de création d'un nouveau séjour (?new=1) ─────────────
+    function renderNewStayForm() {
+      root.innerHTML = `
+        <div class="app-card" style="max-width:720px;">
+          <h2>Nouveau séjour Colonie</h2>
+          <div id="msgNewStay"></div>
+          <form id="newStayForm">
+            <div class="app-field"><label>Nom du séjour *</label><input type="text" name="nom" required placeholder="Ex : Colonie Été 2027" /></div>
+            <div class="app-grid-2">
+              <div class="app-field"><label>Date de début</label><input type="date" name="date_debut" /></div>
+              <div class="app-field"><label>Date de fin</label><input type="date" name="date_fin" /></div>
+            </div>
+            <div class="app-field"><label>Durée (texte affiché)</label><input type="text" name="duree_texte" placeholder="Ex : 12 jours (5 au 17 juillet 2027)" /></div>
+            <div class="app-grid-3">
+              <div class="app-field"><label>Tarif public (€)</label><input type="number" step="0.01" name="tarif_public" /></div>
+              <div class="app-field"><label>Âge minimum</label><input type="number" min="0" name="age_min" /></div>
+              <div class="app-field"><label>Âge maximum</label><input type="number" min="0" name="age_max" /></div>
+            </div>
+            <div class="app-field"><label>Public accueilli</label><input type="text" name="public_accueilli" placeholder="Ex : Enfants et adolescents de 6 à 14 ans" /></div>
+            <div class="app-field"><label>Info tarif aidé (facultatif, texte libre)</label><input type="text" name="tarif_caf_info" placeholder="Ex : Aide CAF jusqu'à 420 € → reste à charge 180 €" /></div>
+            <div class="app-field"><label>Aides applicables</label><input type="text" name="aides_applicables" placeholder="Ex : Aide CAF · Pass Colo · VACAF" /></div>
+            <div class="app-field"><label>Description (affichée sur le formulaire public)</label><textarea name="description" rows="3"></textarea></div>
+            <div class="app-field"><label>Informations générales (internes)</label><textarea name="infos_generales" rows="2"></textarea></div>
+            <div class="app-grid-2">
+              <div class="app-field"><label>Statut</label><select name="statut">${opt(COLONY_STAY_STATUTS, 'ouvert')}</select></div>
+              <div class="app-field"><label>Nombre de participants indicatif (facultatif)</label><input type="number" min="0" name="nb_participants_indicatif" /></div>
+            </div>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:16px;font-weight:700;">
+              <input type="checkbox" name="public_registration_open" checked style="width:auto;" />
+              Ouvrir immédiatement les inscriptions publiques
+            </label>
+            <button type="submit" class="app-btn" id="submitNewStay">Créer le séjour</button>
+          </form>
+        </div>`;
+
+      document.getElementById('newStayForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('submitNewStay');
+        btn.disabled = true; btn.textContent = 'Création…';
+        const fd = new FormData(e.target);
+        const nom = fd.get('nom').trim();
+        if (!nom) { showMsg('msgNewStay', 'Le nom du séjour est obligatoire.'); btn.disabled = false; btn.textContent = 'Créer le séjour'; return; }
+
+        // Anti-doublon : même nom + mêmes dates déjà présents.
+        const dateDebut = fd.get('date_debut') || null;
+        const dateFin = fd.get('date_fin') || null;
+        const { data: dup } = await supabase.from('colony_stays').select('id').eq('nom', nom).eq('date_debut', dateDebut).limit(1);
+        if (dup && dup.length) {
+          showMsg('msgNewStay', 'Un séjour avec ce nom et ces dates existe déjà.');
+          btn.disabled = false; btn.textContent = 'Créer le séjour';
+          return;
+        }
+
+        let slugBase = slugify(nom).toLowerCase();
+        let slug = slugBase;
+        let attempt = 0;
+        const num = (v) => (v === '' || v === null ? null : Number(v));
+        while (attempt < 5) {
+          const payload = {
+            nom, slug,
+            date_debut: dateDebut, date_fin: dateFin,
+            duree_texte: fd.get('duree_texte') || null,
+            tarif_public: num(fd.get('tarif_public')),
+            tarif_caf_info: fd.get('tarif_caf_info') || null,
+            age_min: num(fd.get('age_min')),
+            age_max: num(fd.get('age_max')),
+            public_accueilli: fd.get('public_accueilli') || null,
+            aides_applicables: fd.get('aides_applicables') || null,
+            description: fd.get('description') || null,
+            infos_generales: fd.get('infos_generales') || null,
+            statut: fd.get('statut'),
+            nb_participants_indicatif: num(fd.get('nb_participants_indicatif')),
+            public_registration_open: fd.get('public_registration_open') === 'on',
+            created_by: session.user.id,
+          };
+          const { data, error } = await supabase.from('colony_stays').insert(payload).select().single();
+          if (!error) {
+            await supabase.from('dossier_journal').insert({ colony_registration_id: null, dossier_id: null, action: 'sejour_cree', details: nom }).then(() => {}).catch(() => {});
+            window.location.href = `colonie.html?id=${data.id}`;
+            return;
+          }
+          if (error.message && error.message.includes('colony_stays_slug_key')) {
+            attempt++; slug = `${slugBase}-${attempt + 1}`;
+            continue;
+          }
+          showMsg('msgNewStay', error.message);
+          btn.disabled = false; btn.textContent = 'Créer le séjour';
+          return;
+        }
+        showMsg('msgNewStay', 'Impossible de générer un identifiant unique pour ce séjour.');
+        btn.disabled = false; btn.textContent = 'Créer le séjour';
+      });
+    }
+
+    // ── Statistiques / indicateurs ───────────────────────────
+    function stats() {
+      const total = registrations.length;
+      const complets = registrations.filter(r => ['dossier_complet', 'paiement_complet', 'confirmee'].includes(r.statut)).length;
+      const incomplets = registrations.filter(r => r.statut === 'dossier_incomplet').length;
+      const paiementsComplets = registrations.filter(r => r.statut === 'paiement_complet' || (r.montant_du != null && Number(r.montant_paye || 0) >= Number(r.montant_du))).length;
+      const paiementsPartiels = registrations.filter(r => Number(r.montant_paye || 0) > 0 && r.montant_du != null && Number(r.montant_paye) < Number(r.montant_du)).length;
+      const montantAttendu = registrations.reduce((s, r) => s + Number(r.montant_du || 0), 0);
+      const montantEncaisse = registrations.reduce((s, r) => s + Number(r.montant_paye || 0), 0);
+      const caf = registrations.filter(r => r.beneficiaire_vacaf === true).length;
+      const passColo = registrations.filter(r => r.aide_pass_colo === true).length;
+      const autresAides = registrations.filter(r => r.aide_autre && r.aide_autre.trim()).length;
+      return { total, complets, incomplets, paiementsComplets, paiementsPartiels, montantAttendu, montantEncaisse, montantRestant: montantAttendu - montantEncaisse, caf, passColo, autresAides };
+    }
+
+    // ── Recherche + tri des participants ─────────────────────
+    function matchesSearch(r, term) {
+      if (!term) return true;
+      const hay = `${r.enfant_nom||''} ${r.enfant_prenom||''} ${r.contact_nom||''} ${r.contact_prenom||''} ${r.contact_telephone||''} ${r.contact_email||''} ${r.numero||''}`.toLowerCase();
+      return hay.includes(term.toLowerCase());
+    }
+    function sortedFiltered() {
+      const list = registrations.filter(r => matchesSearch(r, searchTerm));
+      const dir = sortDir === 'asc' ? 1 : -1;
+      const keyFn = {
+        enfant: r => `${r.enfant_nom||''} ${r.enfant_prenom||''}`.toLowerCase(),
+        responsable: r => `${r.contact_nom||''} ${r.contact_prenom||''}`.toLowerCase(),
+        apayer: r => Number(r.montant_du || 0),
+        paye: r => Number(r.montant_paye || 0),
+        reste: r => Number(r.montant_du || 0) - Number(r.montant_paye || 0),
+        statut: r => r.statut,
+        documents: r => docCompleteness(documentsByReg[r.id] || []).valides,
+      }[sortKey] || (() => '');
+      return list.sort((a, b) => {
+        const av = keyFn(a), bv = keyFn(b);
+        if (av < bv) return -1 * dir;
+        if (av > bv) return 1 * dir;
+        return 0;
+      });
+    }
+
+    function docStatusIcon(reg) {
+      const c = docCompleteness(documentsByReg[reg.id] || []);
+      if (!c.total) return '—';
+      if (c.complete) return `✅ ${c.valides}/${c.total}`;
+      if (c.refuses || c.manquants === c.total) return `❌ ${c.valides}/${c.total}`;
+      return `⚠️ ${c.valides}/${c.total}`;
+    }
+    function aidesLabel(r) {
+      const parts = [];
+      if (r.beneficiaire_vacaf) parts.push('CAF/VACAF');
+      if (r.aide_pass_colo) parts.push('Pass Colo');
+      if (r.aide_autre) parts.push(esc(r.aide_autre));
+      return parts.length ? parts.join(', ') : '—';
+    }
+    function resteFor(r) { return r.montant_du != null ? Number(r.montant_du) - Number(r.montant_paye || 0) : null; }
+
+    function sortArrow(key) { return sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''; }
+
+    // ── Rendu principal ───────────────────────────────────────
+    function render() {
+      const st = stats();
+      const statutInfo = COLONY_STAY_STATUTS.find(x => x.value === stay.statut) || {};
+      const list = sortedFiltered();
+
+      root.innerHTML = `
+        <div class="app-card">
+          <h2>${esc(stay.nom)}
+            <span class="app-badge app-badge-${statutInfo.color || 'gray'}">${statutInfo.label || stay.statut}</span>
+            ${stay.public_registration_open ? '<span class="app-badge app-badge-green">🌐 Inscriptions ouvertes</span>' : '<span class="app-badge app-badge-gray">Inscriptions fermées</span>'}
+            ${stay.archived_at ? '<span class="app-badge app-badge-gray">📦 Archivé</span>' : ''}
+          </h2>
+          <p style="color:var(--texte-clair);font-size:.9rem;margin-top:6px;">
+            ${stay.date_debut ? formatDateFr(stay.date_debut) + (stay.date_fin ? ' → ' + formatDateFr(stay.date_fin) : '') : 'Dates non renseignées'}
+            ${stay.duree_texte ? ' · ' + esc(stay.duree_texte) : ''}
+          </p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin:16px 0;">
+            <button class="app-btn app-btn-sm" id="togglePublicOpenBtn">${stay.public_registration_open ? 'Fermer les inscriptions publiques' : 'Ouvrir les inscriptions publiques'}</button>
+            ${stay.archived_at
+              ? `<button class="app-btn app-btn-sm app-btn-outline" id="restoreStayBtn">Restaurer le séjour</button>`
+              : `<button class="app-btn app-btn-sm app-btn-outline" id="archiveStayBtn">Archiver le séjour (passé)</button>`}
+            ${st.total === 0 ? `<button class="app-btn app-btn-sm app-btn-danger" id="deleteStayBtn">Supprimer ce séjour (vide)</button>` : ''}
+          </div>
+          <div id="msgStayActions"></div>
+        </div>
+
+        <div class="app-card">
+          <h2>Indicateurs</h2>
+          <div class="kpi-grid">
+            <div class="app-kpi"><div class="app-kpi-num">${st.total}</div><div class="app-kpi-label">Inscriptions reçues</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${st.complets}</div><div class="app-kpi-label">Dossiers complets</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${st.incomplets}</div><div class="app-kpi-label">Dossiers incomplets</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${st.paiementsComplets}</div><div class="app-kpi-label">Paiements complets</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${st.paiementsPartiels}</div><div class="app-kpi-label">Paiements partiels</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${formatMontant(st.montantAttendu)}</div><div class="app-kpi-label">Montant total attendu</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${formatMontant(st.montantEncaisse)}</div><div class="app-kpi-label">Montant encaissé</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${formatMontant(st.montantRestant)}</div><div class="app-kpi-label">Reste à encaisser</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${st.caf}</div><div class="app-kpi-label">Familles CAF/VACAF</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${st.passColo}</div><div class="app-kpi-label">Pass Colo</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${st.autresAides}</div><div class="app-kpi-label">Autres aides</div></div>
+          </div>
+        </div>
+
+        <div class="app-card">
+          <h2>Informations du séjour</h2>
+          <div id="msgStayForm"></div>
+          <form id="stayForm">
+            <div class="app-grid-2">
+              <div class="app-field"><label>Nom du séjour</label><input type="text" name="nom" value="${esc(stay.nom)}" required /></div>
+              <div class="app-field"><label>Statut</label><select name="statut">${opt(COLONY_STAY_STATUTS, stay.statut)}</select></div>
+            </div>
+            <div class="app-grid-2">
+              <div class="app-field"><label>Date de début</label><input type="date" name="date_debut" value="${stay.date_debut||''}" /></div>
+              <div class="app-field"><label>Date de fin</label><input type="date" name="date_fin" value="${stay.date_fin||''}" /></div>
+            </div>
+            <div class="app-field"><label>Durée (texte affiché)</label><input type="text" name="duree_texte" value="${esc(stay.duree_texte)}" /></div>
+            <div class="app-grid-3">
+              <div class="app-field"><label>Tarif public (€)</label><input type="number" step="0.01" name="tarif_public" value="${stay.tarif_public ?? ''}" /></div>
+              <div class="app-field"><label>Âge minimum</label><input type="number" min="0" name="age_min" value="${stay.age_min ?? ''}" /></div>
+              <div class="app-field"><label>Âge maximum</label><input type="number" min="0" name="age_max" value="${stay.age_max ?? ''}" /></div>
+            </div>
+            <div class="app-field"><label>Public accueilli</label><input type="text" name="public_accueilli" value="${esc(stay.public_accueilli)}" /></div>
+            <div class="app-field"><label>Info tarif aidé (facultatif)</label><input type="text" name="tarif_caf_info" value="${esc(stay.tarif_caf_info)}" /></div>
+            <div class="app-field"><label>Aides applicables</label><input type="text" name="aides_applicables" value="${esc(stay.aides_applicables)}" /></div>
+            <div class="app-field"><label>Description (formulaire public)</label><textarea name="description" rows="3">${esc(stay.description)}</textarea></div>
+            <div class="app-field"><label>Informations générales (internes)</label><textarea name="infos_generales" rows="2">${esc(stay.infos_generales)}</textarea></div>
+            <div class="app-field" style="max-width:260px;"><label>Nombre de participants indicatif (facultatif, jamais une limite)</label><input type="number" min="0" name="nb_participants_indicatif" value="${stay.nb_participants_indicatif ?? ''}" /></div>
+            <button type="submit" class="app-btn">Enregistrer</button>
+          </form>
+        </div>
+
+        <div class="app-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+            <h2 style="margin:0;">Participants</h2>
+            <div style="display:flex;gap:8px;">
+              <span class="app-chip ${viewMode === 'table' ? 'active' : ''}" data-view="table">📋 Tableau</span>
+              <span class="app-chip ${viewMode === 'arrivees' ? 'active' : ''}" data-view="arrivees">🚌 Accueil / Arrivées</span>
+              <button class="app-btn app-btn-sm" id="addRegBtn">+ Ajouter une inscription</button>
+            </div>
+          </div>
+          <div class="app-filters" style="margin-top:14px;">
+            <input type="search" id="searchInput" placeholder="Rechercher enfant, responsable, téléphone, e-mail…" value="${esc(searchTerm)}" style="flex:1;min-width:220px;" />
+          </div>
+
+          ${addingRegistration ? renderAddRegForm() : ''}
+
+          ${viewMode === 'table' ? renderTable(list) : renderArrivees(list)}
+
+          ${selectedRegId ? renderRegDetail(registrations.find(r => r.id === selectedRegId)) : ''}
+        </div>
+
+        <div class="app-card">
+          <h2>Activité récente du séjour</h2>
+          <ul class="app-todo-list">
+            ${journal.map(j => `<li><span class="app-todo-dot"></span>${esc(JOURNAL_LABELS[j.action] || j.action)}${j.details ? ' — ' + esc(j.details) : ''} <span style="color:var(--texte-clair);font-size:.8rem;">— ${new Date(j.created_at).toLocaleString('fr-FR')}</span></li>`).join('') || '<li>Aucune activité.</li>'}
+          </ul>
+        </div>
+      `;
+
+      bindEvents();
+    }
+
+    function renderTable(list) {
+      return `
+      <div class="app-table-wrap">
+        <table class="app-table">
+          <thead><tr>
+            <th data-sort="enfant">Enfant${sortArrow('enfant')}</th>
+            <th data-sort="responsable">Responsable${sortArrow('responsable')}</th>
+            <th data-sort="documents">Documents${sortArrow('documents')}</th>
+            <th>Aides</th>
+            <th data-sort="apayer">À payer${sortArrow('apayer')}</th>
+            <th data-sort="paye">Payé${sortArrow('paye')}</th>
+            <th data-sort="reste">Reste${sortArrow('reste')}</th>
+            <th data-sort="statut">Statut${sortArrow('statut')}</th>
+          </tr></thead>
+          <tbody>
+            ${list.map(r => {
+              const reste = resteFor(r);
+              const statutInfo = COLONY_REGISTRATION_STATUTS.find(x => x.value === r.statut) || {};
+              return `
+              <tr class="reg-row" data-reg-id="${r.id}">
+                <td>${esc(r.enfant_prenom)} ${esc(r.enfant_nom)}<br/><span style="font-size:.76rem;color:var(--texte-clair);">${esc(r.numero)}</span></td>
+                <td>${esc(r.contact_prenom||'')} ${esc(r.contact_nom||'')}<br/><span style="font-size:.76rem;color:var(--texte-clair);">${esc(r.contact_telephone||'')}</span></td>
+                <td>${docStatusIcon(r)}</td>
+                <td>${aidesLabel(r)}</td>
+                <td>${formatMontant(r.montant_du)}</td>
+                <td>${formatMontant(r.montant_paye)}</td>
+                <td>${reste != null ? formatMontant(reste) : '—'}</td>
+                <td><span class="app-badge app-badge-gray">${statutInfo.label || r.statut}</span></td>
+              </tr>`;
+            }).join('') || `<tr><td colspan="8" style="text-align:center;padding:24px;">Aucune inscription ne correspond.</td></tr>`}
+          </tbody>
+        </table>
+      </div>`;
+    }
+
+    function renderArrivees(list) {
+      return list.map(r => {
+        const c = docCompleteness(documentsByReg[r.id] || []);
+        const reste = resteFor(r);
+        const docsOk = c.total > 0 ? c.complete : true;
+        const paiementOk = reste != null ? reste <= 0 : false;
+        const cls = (docsOk && paiementOk) ? 'ok' : ((!docsOk && c.manquants === c.total) ? 'bad' : 'warn');
+        const docsLine = docsOk ? '✅ Dossier complet' : (c.manquants ? `❌ ${c.manquants} document(s) manquant(s)` : `⚠️ ${c.valides}/${c.total} documents validés`);
+        const paiementLine = paiementOk ? '✅ Paiement complet' : (reste != null ? `⚠️ ${formatMontant(reste)} restant` : '⚠️ Montant non défini');
+        return `
+        <div class="arrivee-card ${cls}" data-reg-id="${r.id}" style="cursor:pointer;">
+          <div class="arrivee-name">${esc(r.enfant_prenom)} ${esc(r.enfant_nom)}</div>
+          <div class="arrivee-lines">
+            <span>${docsLine}</span>
+            <span>${paiementLine}</span>
+            <span style="color:var(--texte-clair);">Responsable : ${esc(r.contact_prenom||'')} ${esc(r.contact_nom||'')} · ${esc(r.contact_telephone||'—')}</span>
+          </div>
+        </div>`;
+      }).join('') || '<p style="padding:20px;text-align:center;color:var(--texte-clair);">Aucune inscription.</p>';
+    }
+
+    function renderAddRegForm() {
+      return `
+      <div class="app-card" style="background:var(--gris-clair);margin:14px 0;">
+        <h3>Ajouter une inscription</h3>
+        <div id="msgAddReg"></div>
+        <form id="addRegForm">
+          <div class="app-grid-2">
+            <div class="app-field"><label>Prénom de l'enfant *</label><input type="text" name="enfant_prenom" required /></div>
+            <div class="app-field"><label>Nom de l'enfant *</label><input type="text" name="enfant_nom" required /></div>
+          </div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Date de naissance</label><input type="date" name="enfant_date_naissance" /></div>
+            <div class="app-field"><label>Sexe</label><select name="enfant_sexe"><option value="">—</option><option value="fille">Fille</option><option value="garcon">Garçon</option></select></div>
+          </div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Responsable (prénom)</label><input type="text" name="contact_prenom" /></div>
+            <div class="app-field"><label>Responsable (nom)</label><input type="text" name="contact_nom" /></div>
+          </div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Téléphone</label><input type="text" name="contact_telephone" /></div>
+            <div class="app-field"><label>E-mail</label><input type="email" name="contact_email" /></div>
+          </div>
+          <div class="app-field" style="max-width:200px;"><label>Tarif du séjour (€)</label><input type="number" step="0.01" name="tarif_sejour" value="${stay.tarif_public ?? ''}" /></div>
+          <button type="submit" class="app-btn app-btn-sm">Créer la fiche</button>
+          <button type="button" class="app-btn app-btn-sm app-btn-outline" id="cancelAddRegBtn">Annuler</button>
+        </form>
+      </div>`;
+    }
+
+    function renderRegDetail(reg) {
+      if (!reg) return '';
+      const docs = (documentsByReg[reg.id] || []).filter(d => showAllDossiers || d.statut !== 'non_requis');
+      const reste = resteFor(reg);
+      return `
+      <div class="reg-detail-panel">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+          <h3 style="margin:0;">${esc(reg.enfant_prenom)} ${esc(reg.enfant_nom)} — ${esc(reg.numero)}</h3>
+          <button class="app-btn app-btn-sm app-btn-outline" id="closeRegDetailBtn">Fermer</button>
+        </div>
+        <div id="msgRegDetail"></div>
+
+        <form id="regForm" style="margin-top:12px;">
+          <h4>Enfant</h4>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Prénom</label><input type="text" name="enfant_prenom" value="${esc(reg.enfant_prenom)}" required /></div>
+            <div class="app-field"><label>Nom</label><input type="text" name="enfant_nom" value="${esc(reg.enfant_nom)}" required /></div>
+          </div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Date de naissance</label><input type="date" name="enfant_date_naissance" value="${reg.enfant_date_naissance||''}" /></div>
+            <div class="app-field"><label>Sexe</label><select name="enfant_sexe"><option value="">—</option><option value="fille" ${reg.enfant_sexe==='fille'?'selected':''}>Fille</option><option value="garcon" ${reg.enfant_sexe==='garcon'?'selected':''}>Garçon</option></select></div>
+          </div>
+          <h4>Responsable légal</h4>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Prénom</label><input type="text" name="contact_prenom" value="${esc(reg.contact_prenom)}" /></div>
+            <div class="app-field"><label>Nom</label><input type="text" name="contact_nom" value="${esc(reg.contact_nom)}" /></div>
+          </div>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Téléphone</label><input type="text" name="contact_telephone" value="${esc(reg.contact_telephone)}" /></div>
+            <div class="app-field"><label>E-mail</label><input type="email" name="contact_email" value="${esc(reg.contact_email)}" /></div>
+          </div>
+          <h4>Aides</h4>
+          <div class="app-grid-3">
+            <div class="app-field"><label>Bénéficiaire CAF/VACAF</label><select name="beneficiaire_vacaf"><option value="">—</option><option value="true" ${reg.beneficiaire_vacaf===true?'selected':''}>Oui</option><option value="false" ${reg.beneficiaire_vacaf===false?'selected':''}>Non</option></select></div>
+            <div class="app-field"><label>N° allocataire</label><input type="text" name="numero_allocataire" value="${esc(reg.numero_allocataire)}" /></div>
+            <div class="app-field"><label>Pass Colo</label><select name="aide_pass_colo"><option value="">—</option><option value="true" ${reg.aide_pass_colo===true?'selected':''}>Oui</option><option value="false" ${reg.aide_pass_colo===false?'selected':''}>Non</option></select></div>
+          </div>
+          <div class="app-field"><label>Autre aide</label><input type="text" name="aide_autre" value="${esc(reg.aide_autre)}" /></div>
+          <h4>Autorisations</h4>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Partage privé (familles)</label><select name="autorisation_partage_prive"><option value="">—</option><option value="true" ${reg.autorisation_partage_prive===true?'selected':''}>Oui</option><option value="false" ${reg.autorisation_partage_prive===false?'selected':''}>Non</option></select></div>
+            <div class="app-field"><label>Communication publique</label><select name="autorisation_communication_publique"><option value="">—</option><option value="true" ${reg.autorisation_communication_publique===true?'selected':''}>Oui</option><option value="false" ${reg.autorisation_communication_publique===false?'selected':''}>Non</option></select></div>
+          </div>
+          <h4>Finances</h4>
+          <div class="app-grid-3">
+            <div class="app-field"><label>Tarif du séjour (€)</label><input type="number" step="0.01" name="tarif_sejour" value="${reg.tarif_sejour ?? ''}" /></div>
+            <div class="app-field"><label>Aide prévue (€)</label><input type="number" step="0.01" name="aide_prevue" value="${reg.aide_prevue ?? 0}" /></div>
+            <div class="app-field"><label>Montant net à payer (€)</label><input type="number" step="0.01" name="montant_du" value="${reg.montant_du ?? ''}" /></div>
+          </div>
+          <div class="app-grid-3" style="margin-top:6px;">
+            <div class="app-kpi"><div class="app-kpi-num">${formatMontant(reg.montant_paye)}</div><div class="app-kpi-label">Payé (calculé)</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${reste != null ? formatMontant(reste) : '—'}</div><div class="app-kpi-label">Reste à payer</div></div>
+            <div class="app-field"><label>Statut de la fiche</label><select name="statut">${opt(COLONY_REGISTRATION_STATUTS, reg.statut)}</select></div>
+          </div>
+          <button type="submit" class="app-btn">Enregistrer</button>
+          <button type="button" class="app-btn app-btn-danger" id="deleteRegBtn" style="margin-left:8px;">Supprimer cette fiche</button>
+        </form>
+
+        <h4 style="margin-top:20px;">Paiements</h4>
+        <div id="msgRegPaiement"></div>
+        <div id="regPaiementsList"></div>
+        <form id="regPaiementForm" style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
+          <div class="app-field" style="margin:0;"><label>Montant (€)</label><input type="number" step="0.01" name="montant" required style="width:120px;" /></div>
+          <div class="app-field" style="margin:0;"><label>Date</label><input type="date" name="date_paiement" value="${today()}" /></div>
+          <div class="app-field" style="margin:0;flex:1;min-width:160px;"><label>Note</label><input type="text" name="note" /></div>
+          <button type="submit" class="app-btn app-btn-sm">Ajouter le paiement (admin uniquement)</button>
+        </form>
+
+        <h4 style="margin-top:20px;">Documents</h4>
+        <div id="msgRegDocs"></div>
+        ${docs.map(d => renderDocRow(d)).join('') || '<p style="color:var(--texte-clair);font-size:.85rem;">Aucun document.</p>'}
+        <p style="margin-top:10px;">
+          <button class="app-btn app-btn-sm app-btn-outline" id="toggleAllDocsBtn">${showAllDossiers ? 'Masquer' : 'Afficher'} les documents non requis</button>
+        </p>
+
+        <h4>Ajouter un document</h4>
+        <div id="msgAddRegDoc"></div>
+        <form id="addRegDocForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
+          <div class="app-field" style="margin:0;min-width:200px;"><label>Type</label>
+            <select name="type" required>
+              <option value="">— Choisir —</option>
+              ${ALL_DOCUMENT_TYPES.filter(t => !(documentsByReg[reg.id]||[]).some(d => d.type === t.value)).map(t => `<option value="${t.value}">${t.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="app-field" style="margin:0;"><label>Fichier</label><input type="file" name="file" required /></div>
+          <div class="app-field" style="margin:0;"><label>Commentaire (facultatif)</label><input type="text" name="commentaire" /></div>
+          <button type="submit" class="app-btn app-btn-sm">Ajouter</button>
+        </form>
+      </div>`;
+    }
+
+    function renderDocRow(doc) {
+      return `
+        <div class="app-doc-row" data-doc-type="${doc.type}">
+          <span class="app-doc-name">
+            ${esc(labelForDocumentType(doc.type))}
+            ${doc.statut === 'refuse' && doc.refus_motif ? `<br/><span style="font-size:.78rem;color:#c0392b;font-weight:400;">Motif : ${esc(doc.refus_motif)}</span>` : ''}
+          </span>
+          ${doc.file_name ? `<a href="#" data-download="${doc.storage_path}" style="font-size:.82rem;color:var(--vert-fonce);">${esc(doc.file_name)}</a>` : '<span style="font-size:.8rem;color:var(--texte-clair);">Aucun fichier</span>'}
+          <label class="app-btn app-btn-sm app-btn-outline" style="cursor:pointer;">
+            ${doc.file_name ? 'Remplacer' : 'Déposer'}
+            <input type="file" data-doc-upload="${doc.type}" style="display:none;" />
+          </label>
+          <select data-doc-statut="${doc.type}" style="padding:6px 10px;border-radius:6px;border:1px solid var(--beige-fonce);">${opt(DOC_STATUTS, doc.statut)}</select>
+        </div>`;
+    }
+
+    // ── Événements ─────────────────────────────────────────────
+    function bindEvents() {
+      document.getElementById('searchInput')?.addEventListener('input', (e) => { searchTerm = e.target.value; render(); });
+      document.querySelectorAll('[data-view]').forEach(chip => chip.addEventListener('click', () => { viewMode = chip.dataset.view; render(); }));
+      document.querySelectorAll('th[data-sort]').forEach(th => th.addEventListener('click', () => {
+        const key = th.dataset.sort;
+        if (sortKey === key) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+        else { sortKey = key; sortDir = 'asc'; }
+        render();
+      }));
+      document.querySelectorAll('.reg-row, .arrivee-card').forEach(el => el.addEventListener('click', () => {
+        selectedRegId = el.dataset.regId === selectedRegId ? null : el.dataset.regId;
+        addingRegistration = false;
+        render();
+        if (selectedRegId) document.getElementById('closeRegDetailBtn')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }));
+
+      document.getElementById('addRegBtn')?.addEventListener('click', () => { addingRegistration = !addingRegistration; selectedRegId = null; render(); });
+      document.getElementById('cancelAddRegBtn')?.addEventListener('click', () => { addingRegistration = false; render(); });
+      document.getElementById('closeRegDetailBtn')?.addEventListener('click', () => { selectedRegId = null; render(); });
+      document.getElementById('toggleAllDocsBtn')?.addEventListener('click', () => { showAllDossiers = !showAllDossiers; render(); });
+
+      document.getElementById('togglePublicOpenBtn')?.addEventListener('click', async () => {
+        const { error } = await supabase.from('colony_stays').update({ public_registration_open: !stay.public_registration_open }).eq('id', stayId);
+        if (error) return showMsg('msgStayActions', error.message);
+        await loadAll();
+      });
+      document.getElementById('archiveStayBtn')?.addEventListener('click', async () => {
+        const { error } = await supabase.from('colony_stays').update({ archived_at: new Date().toISOString(), public_registration_open: false }).eq('id', stayId);
+        if (error) return showMsg('msgStayActions', error.message);
+        await supabase.from('dossier_journal').insert({ action: 'sejour_archive', details: stay.nom }).catch(() => {});
+        await loadAll();
+      });
+      document.getElementById('restoreStayBtn')?.addEventListener('click', async () => {
+        const { error } = await supabase.from('colony_stays').update({ archived_at: null }).eq('id', stayId);
+        if (error) return showMsg('msgStayActions', error.message);
+        await supabase.from('dossier_journal').insert({ action: 'sejour_restaure', details: stay.nom }).catch(() => {});
+        await loadAll();
+      });
+      document.getElementById('deleteStayBtn')?.addEventListener('click', async () => {
+        if (!confirm(`Supprimer définitivement le séjour "${stay.nom}" ? Cette action est irréversible (uniquement possible car il n'a aucune inscription).`)) return;
+        const { error } = await supabase.from('colony_stays').delete().eq('id', stayId);
+        if (error) return showMsg('msgStayActions', error.message);
+        window.location.href = 'dashboard.html';
+      });
+
+      document.getElementById('stayForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const num = (v) => (v === '' || v === null ? null : Number(v));
+        const payload = {
+          nom: fd.get('nom'), statut: fd.get('statut'),
+          date_debut: fd.get('date_debut') || null, date_fin: fd.get('date_fin') || null,
+          duree_texte: fd.get('duree_texte') || null,
+          tarif_public: num(fd.get('tarif_public')), tarif_caf_info: fd.get('tarif_caf_info') || null,
+          age_min: num(fd.get('age_min')), age_max: num(fd.get('age_max')),
+          public_accueilli: fd.get('public_accueilli') || null,
+          aides_applicables: fd.get('aides_applicables') || null,
+          description: fd.get('description') || null,
+          infos_generales: fd.get('infos_generales') || null,
+          nb_participants_indicatif: num(fd.get('nb_participants_indicatif')),
+        };
+        const { error } = await supabase.from('colony_stays').update(payload).eq('id', stayId);
+        if (error) return showMsg('msgStayForm', error.message);
+        showMsg('msgStayForm', 'Enregistré.', 'success');
+        await loadAll();
+      });
+
+      document.getElementById('addRegForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const num = (v) => (v === '' || v === null ? null : Number(v));
+        // Numérotation : réutilise l'endpoint public existant (idempotent par un id de soumission dédié à cette création admin).
+        let numero;
+        try {
+          const res = await fetch('/api/dossier-number', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ submissionId: `admin-colonie-${Date.now()}-${Math.random().toString(36).slice(2)}` }),
+          });
+          const json = await res.json();
+          if (!res.ok) throw new Error(json.error || 'Échec de numérotation.');
+          numero = json.dossierNumero;
+        } catch (err) {
+          return showMsg('msgAddReg', err.message);
+        }
+        const payload = {
+          numero, stay_id: stayId, source: 'admin', created_by: session.user.id,
+          enfant_prenom: fd.get('enfant_prenom'), enfant_nom: fd.get('enfant_nom'),
+          enfant_date_naissance: fd.get('enfant_date_naissance') || null,
+          enfant_sexe: fd.get('enfant_sexe') || null,
+          contact_prenom: fd.get('contact_prenom') || null, contact_nom: fd.get('contact_nom') || null,
+          contact_telephone: fd.get('contact_telephone') || null, contact_email: fd.get('contact_email') || null,
+          tarif_sejour: num(fd.get('tarif_sejour')), montant_du: num(fd.get('tarif_sejour')),
+        };
+        const { error } = await supabase.from('colony_registrations').insert(payload);
+        if (error) return showMsg('msgAddReg', error.message);
+        addingRegistration = false;
+        await loadAll();
+      });
+
+      document.getElementById('regForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const reg = registrations.find(r => r.id === selectedRegId);
+        const fd = new FormData(e.target);
+        const gBool = (k) => (fd.has(k) && fd.get(k) !== '' ? fd.get(k) === 'true' : null);
+        const num = (v) => (v === '' || v === null ? null : Number(v));
+        const payload = {
+          enfant_prenom: fd.get('enfant_prenom'), enfant_nom: fd.get('enfant_nom'),
+          enfant_date_naissance: fd.get('enfant_date_naissance') || null, enfant_sexe: fd.get('enfant_sexe') || null,
+          contact_prenom: fd.get('contact_prenom') || null, contact_nom: fd.get('contact_nom') || null,
+          contact_telephone: fd.get('contact_telephone') || null, contact_email: fd.get('contact_email') || null,
+          beneficiaire_vacaf: gBool('beneficiaire_vacaf'), numero_allocataire: fd.get('numero_allocataire') || null,
+          aide_pass_colo: gBool('aide_pass_colo'), aide_autre: fd.get('aide_autre') || null,
+          autorisation_partage_prive: gBool('autorisation_partage_prive'),
+          autorisation_communication_publique: gBool('autorisation_communication_publique'),
+          tarif_sejour: num(fd.get('tarif_sejour')), aide_prevue: num(fd.get('aide_prevue')) || 0,
+          montant_du: num(fd.get('montant_du')),
+          statut: fd.get('statut'),
+        };
+        const statutChanged = reg.statut !== payload.statut;
+        const { error } = await supabase.from('colony_registrations').update(payload).eq('id', selectedRegId);
+        if (error) return showMsg('msgRegDetail', error.message);
+        if (statutChanged) {
+          await supabase.from('dossier_journal').insert({
+            colony_registration_id: selectedRegId, action: 'statut_colonie_change',
+            details: `${reg.statut} → ${payload.statut}`, actor: session.user.id,
+          }).catch(() => {});
+        }
+        showMsg('msgRegDetail', 'Enregistré.', 'success');
+        await loadAll();
+      });
+
+      document.getElementById('deleteRegBtn')?.addEventListener('click', async () => {
+        const reg = registrations.find(r => r.id === selectedRegId);
+        if (!confirm(`Supprimer définitivement la fiche de ${reg.enfant_prenom} ${reg.enfant_nom} ? Cette action est irréversible.`)) return;
+        await removeAllRegFiles(selectedRegId);
+        const { error } = await supabase.from('colony_registrations').delete().eq('id', selectedRegId);
+        if (error) return showMsg('msgRegDetail', error.message);
+        selectedRegId = null;
+        await loadAll();
+      });
+
+      document.getElementById('regPaiementForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const { error } = await supabase.from('paiements').insert({
+          colony_registration_id: selectedRegId,
+          montant: Number(fd.get('montant')),
+          type: 'colonie',
+          date_paiement: fd.get('date_paiement') || today(),
+          note: fd.get('note') || null,
+          created_by: session.user.id,
+        });
+        if (error) return showMsg('msgRegPaiement', error.message);
+        await supabase.from('dossier_journal').insert({
+          colony_registration_id: selectedRegId, action: 'paiement_colonie_enregistre',
+          details: `${fd.get('montant')} €`, actor: session.user.id,
+        }).catch(() => {});
+        showMsg('msgRegPaiement', 'Paiement enregistré.', 'success');
+        await loadAll();
+      });
+
+      document.querySelectorAll('[data-doc-upload]').forEach(input => {
+        input.addEventListener('change', async (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          const type = input.dataset.docUpload;
+          await uploadRegDocumentFile(type, file);
+        });
+      });
+      document.querySelectorAll('[data-doc-statut]').forEach(sel => {
+        sel.addEventListener('change', async () => {
+          const type = sel.dataset.docStatut;
+          let refusMotif = null;
+          if (sel.value === 'refuse') {
+            refusMotif = prompt('Motif du refus (obligatoire) :');
+            if (!refusMotif || !refusMotif.trim()) { render(); return; }
+          }
+          const { error } = await supabase.from('documents').update({ statut: sel.value, refus_motif: refusMotif }).eq('colony_registration_id', selectedRegId).eq('type', type);
+          if (error) return showMsg('msgRegDocs', error.message);
+          await loadAll();
+        });
+      });
+      document.querySelectorAll('[data-download]').forEach(a => {
+        a.addEventListener('click', async (e) => {
+          e.preventDefault();
+          const path = a.dataset.download;
+          if (!path) return;
+          const { data, error } = await supabase.storage.from('documents-dossiers').createSignedUrl(path, 60);
+          if (error) return showMsg('msgRegDocs', error.message);
+          window.open(data.signedUrl, '_blank');
+        });
+      });
+
+      document.getElementById('addRegDocForm')?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const type = fd.get('type');
+        const file = fd.get('file');
+        if (!type || !file || !file.name) { showMsg('msgAddRegDoc', 'Type et fichier obligatoires.'); return; }
+        try {
+          const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+          const path = `${selectedRegId}/${type}/${Date.now()}_${safeName}`;
+          const { error: upErr } = await supabase.storage.from('documents-dossiers').upload(path, file, { upsert: true });
+          if (upErr) throw upErr;
+          const { error: insErr } = await supabase.from('documents').insert({
+            colony_registration_id: selectedRegId, type, storage_path: path, file_name: file.name, statut: 'recu',
+            document_source: 'admin', client_visible: false, commentaire: fd.get('commentaire') || null,
+          });
+          if (insErr) throw insErr;
+          showMsg('msgAddRegDoc', 'Document ajouté.', 'success');
+          await loadAll();
+        } catch (error) {
+          showMsg('msgAddRegDoc', error.message || 'Échec de l\'ajout.');
+        }
+      });
+    }
+
+    async function removeAllRegFiles(registrationId) {
+      const { data: topLevel } = await supabase.storage.from('documents-dossiers').list(registrationId);
+      for (const entry of topLevel || []) {
+        const subPath = `${registrationId}/${entry.name}`;
+        const { data: subFiles } = await supabase.storage.from('documents-dossiers').list(subPath);
+        if (subFiles && subFiles.length) {
+          await supabase.storage.from('documents-dossiers').remove(subFiles.map(f => `${subPath}/${f.name}`));
+        } else {
+          await supabase.storage.from('documents-dossiers').remove([subPath]);
+        }
+      }
+    }
+
+    async function uploadRegDocumentFile(type, file) {
+      try {
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const path = `${selectedRegId}/${type}/${Date.now()}_${safeName}`;
+        const { error: upErr } = await supabase.storage.from('documents-dossiers').upload(path, file, { upsert: true });
+        if (upErr) throw upErr;
+        const { error: updErr } = await supabase.from('documents').update({ storage_path: path, file_name: file.name, statut: 'recu' }).eq('colony_registration_id', selectedRegId).eq('type', type);
+        if (updErr) throw updErr;
+        showMsg('msgRegDocs', 'Document mis à jour.', 'success');
+        await loadAll();
+      } catch (error) {
+        showMsg('msgRegDocs', error.message || 'Échec du dépôt.');
+      }
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await supabase.auth.signOut();
+      window.location.href = 'index.html';
+    });
+
+    init();
+  </script>
+</body>
+</html>

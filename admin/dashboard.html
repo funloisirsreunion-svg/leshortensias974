@@ -33,10 +33,11 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
-    import { STATUTS, CLIENT_TYPES, JOURNAL_LABELS, labelOf, formatDateFr, formatMontant, docCompleteness } from '../lib/appConstants.js';
+    import { STATUTS, CLIENT_TYPES, COLONY_STAY_STATUTS, JOURNAL_LABELS, labelOf, formatDateFr, formatMontant, docCompleteness } from '../lib/appConstants.js';
 
     const root = document.getElementById('appRoot');
     let supabase, dossiers = [], documentsByDossier = {}, activeFilter = null, typeFilter = null, archiveFilter = 'active', searchTerm = '', notifications = [], recentActivity = [];
+    let colonyStays = [], colonyRegsByStay = {}, colonyArchiveFilter = 'active';
 
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -63,7 +64,9 @@
     async function loadAll() {
       const { data: d, error } = await supabase.from('dossiers').select('*').order('created_at', { ascending: false });
       if (error) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(error.message)}</div>`; return; }
-      dossiers = d || [];
+      // Les colonies vivent désormais dans colony_stays/colony_registrations (section dédiée
+      // plus bas) — ce tableau ne doit jamais afficher une ligne par famille pour les colonies.
+      dossiers = (d || []).filter(x => x.client_type !== 'colony');
 
       const { data: docs } = await supabase.from('documents').select('dossier_id, type, statut');
       documentsByDossier = {};
@@ -78,7 +81,35 @@
       const { data: journal } = await supabase.from('dossier_journal').select('*, dossiers(numero, etablissement)').order('created_at', { ascending: false }).limit(15);
       recentActivity = journal || [];
 
+      const { data: stays } = await supabase.from('colony_stays').select('*').order('date_debut', { ascending: true, nullsFirst: false });
+      colonyStays = stays || [];
+
+      const { data: regs } = await supabase.from('colony_registrations').select('stay_id, statut, montant_du, montant_paye');
+      colonyRegsByStay = {};
+      (regs || []).forEach(r => { (colonyRegsByStay[r.stay_id] = colonyRegsByStay[r.stay_id] || []).push(r); });
+
       render();
+    }
+
+    function colonyStayStats(stayId) {
+      const regs = colonyRegsByStay[stayId] || [];
+      const complets = regs.filter(r => ['dossier_complet', 'paiement_complet', 'confirmee'].includes(r.statut)).length;
+      const montantAttendu = regs.reduce((s, r) => s + Number(r.montant_du || 0), 0);
+      const montantEncaisse = regs.reduce((s, r) => s + Number(r.montant_paye || 0), 0);
+      return {
+        total: regs.length,
+        complets,
+        incomplets: regs.length - complets,
+        montantAttendu,
+        montantEncaisse,
+        montantRestant: montantAttendu - montantEncaisse,
+      };
+    }
+
+    function matchesColonyArchiveFilter(s) {
+      if (colonyArchiveFilter === 'all') return true;
+      if (colonyArchiveFilter === 'archived') return !!s.archived_at;
+      return !s.archived_at;
     }
 
     function updateNotifBadge() {
@@ -239,6 +270,49 @@
         </div>` : ''}
 
         <div class="app-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
+            <h2 style="margin:0;">🏕️ Colonies — séjours</h2>
+            <a href="colonie.html?new=1" class="app-btn app-btn-sm">+ Nouveau séjour Colonie</a>
+          </div>
+          <div class="app-filters" style="margin-bottom:14px;">
+            <span class="app-chip ${colonyArchiveFilter === 'active' ? 'active' : ''}" data-colony-archive-filter="active">Actifs</span>
+            <span class="app-chip ${colonyArchiveFilter === 'archived' ? 'active' : ''}" data-colony-archive-filter="archived">Archivés</span>
+            <span class="app-chip ${colonyArchiveFilter === 'all' ? 'active' : ''}" data-colony-archive-filter="all">Tous</span>
+          </div>
+          <div class="app-table-wrap">
+            <table class="app-table">
+              <thead><tr>
+                <th>Séjour</th><th>Dates</th><th>Statut</th><th>Inscriptions</th><th>Complets</th><th>Incomplets</th><th>Attendu</th><th>Encaissé</th><th>Restant</th><th></th>
+              </tr></thead>
+              <tbody>
+                ${colonyStays.filter(matchesColonyArchiveFilter).map(s => {
+                  const stats = colonyStayStats(s.id);
+                  const statutInfo = COLONY_STAY_STATUTS.find(x => x.value === s.statut) || {};
+                  return `
+                  <tr>
+                    <td><a class="row-link" href="colonie.html?id=${s.id}">${esc(s.nom)}</a></td>
+                    <td>${s.date_debut ? formatDateFr(s.date_debut) + (s.date_fin ? ' → ' + formatDateFr(s.date_fin) : '') : '—'}</td>
+                    <td>
+                      <span class="app-badge app-badge-${statutInfo.color || 'gray'}">${statutInfo.label || s.statut}</span>
+                      ${s.public_registration_open ? '<span class="app-badge app-badge-green">🌐 Inscriptions ouvertes</span>' : '<span class="app-badge app-badge-gray">Inscriptions fermées</span>'}
+                      ${s.archived_at ? '<span class="app-badge app-badge-gray">📦 Archivé</span>' : ''}
+                    </td>
+                    <td>${stats.total} inscription${stats.total > 1 ? 's' : ''}</td>
+                    <td>${stats.complets}</td>
+                    <td>${stats.incomplets}</td>
+                    <td>${formatMontant(stats.montantAttendu)}</td>
+                    <td>${formatMontant(stats.montantEncaisse)}</td>
+                    <td>${formatMontant(stats.montantRestant)}</td>
+                    <td><a class="app-btn app-btn-sm app-btn-outline" href="colonie.html?id=${s.id}">Ouvrir</a></td>
+                  </tr>`;
+                }).join('') || `<tr><td colspan="10" style="text-align:center;padding:24px;">Aucun séjour colonie ${colonyArchiveFilter === 'archived' ? 'archivé' : ''}.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="app-card">
+          <h2>🏫 Classes découvertes & 👥 Groupes indépendants</h2>
           <div class="app-filters">
             <input type="search" id="searchInput" placeholder="Rechercher client, numéro, e-mail, téléphone…" value="${esc(searchTerm)}" style="flex:1;min-width:220px;" />
           </div>
@@ -249,7 +323,7 @@
           </div>
           <div class="app-filters" id="typeFilters">
             <span class="app-chip ${!typeFilter ? 'active' : ''}" data-type-filter="">Tous types</span>
-            ${CLIENT_TYPES.map(t => `<span class="app-chip ${typeFilter === t.value ? 'active' : ''}" data-type-filter="${t.value}">${t.badge} ${t.label}</span>`).join('')}
+            ${CLIENT_TYPES.filter(t => t.value !== 'colony').map(t => `<span class="app-chip ${typeFilter === t.value ? 'active' : ''}" data-type-filter="${t.value}">${t.badge} ${t.label}</span>`).join('')}
           </div>
           <div class="app-filters" id="chipFilters">
             ${['a_venir', 'en_cours', 'passes', 'annules', 'acomptes_manquants', 'incomplets', 'soldes'].map(f => `
@@ -303,6 +377,9 @@
       });
       document.querySelectorAll('#archiveFilters .app-chip').forEach(chip => {
         chip.addEventListener('click', () => { archiveFilter = chip.dataset.archiveFilter; render(); });
+      });
+      document.querySelectorAll('[data-colony-archive-filter]').forEach(chip => {
+        chip.addEventListener('click', () => { colonyArchiveFilter = chip.dataset.colonyArchiveFilter; render(); });
       });
       document.querySelectorAll('[data-demande-action]').forEach(btn => {
         btn.addEventListener('click', async () => {

@@ -2,11 +2,14 @@ import { getSupabaseAdmin } from '../../lib/supabaseAdmin.js';
 import { requireAdmin } from '../../lib/requireAdmin.js';
 import { assignClsNumber } from '../../lib/clsDossierNumber.js';
 import { assignGrpNumber } from '../../lib/grpDossierNumber.js';
-import { assignDossierNumber as assignColNumber } from '../../lib/dossierNumber.js';
 
 const PROGRAMMES = new Set(['nature', 'volcan']);
 const DUREES = new Set([3, 4, 5]);
-const CLIENT_TYPES = new Set(['school', 'group', 'colony']);
+// Les colonies ne passent plus par ce endpoint : un séjour colonie se crée
+// directement dans colony_stays (admin/colonie.html), les familles s'inscrivent
+// ensuite dans colony_registrations. Ce endpoint ne gère plus que école/groupe,
+// pour lesquels un séjour = un dossier `dossiers` (inchangé).
+const CLIENT_TYPES = new Set(['school', 'group']);
 const STRUCTURE_TYPES = new Set(['association', 'club_sportif', 'entreprise', 'collectivite', 'famille', 'etablissement', 'organisme_public', 'autre']);
 const FORMULES = new Set(['pension_complete', 'demi_pension', 'weekend', 'autre']);
 
@@ -75,34 +78,10 @@ export default async function handler(req, res) {
       formule: body.formule || null,
       estimation_montant: numOrNull(body.estimation_montant),
     };
-  } else {
-    // colony
-    const enfantNom = str(body.enfant_nom);
-    const enfantPrenom = str(body.enfant_prenom);
-    if (!enfantNom || !enfantPrenom) return res.status(400).json({ error: 'Le nom et le prénom de l\'enfant sont obligatoires.' });
-
-    payload = {
-      client_type: 'colony',
-      etablissement: `${enfantPrenom} ${enfantNom}`,
-      enfant_nom: enfantNom,
-      enfant_prenom: enfantPrenom,
-      enfant_date_naissance: body.enfant_date_naissance || null,
-      enfant_sexe: body.enfant_sexe || null,
-      contact_nom: str(body.contact_nom) || null,
-      contact_telephone: str(body.contact_telephone) || null,
-      contact_email: str(body.contact_email) || null,
-      beneficiaire_vacaf: body.beneficiaire_vacaf === true || body.beneficiaire_vacaf === 'true',
-      numero_allocataire: str(body.numero_allocataire) || null,
-      colonie_nom: str(body.colonie_nom) || null,
-      tarif_colonie: numOrNull(body.tarif_colonie),
-    };
   }
 
   try {
-    let numero;
-    if (clientType === 'school') numero = await assignClsNumber();
-    else if (clientType === 'group') numero = await assignGrpNumber();
-    else numero = await assignColNumber(`admin-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const numero = clientType === 'school' ? await assignClsNumber() : await assignGrpNumber();
 
     const { data, error } = await supabaseAdmin
       .from('dossiers')

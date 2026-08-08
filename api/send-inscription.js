@@ -7,11 +7,11 @@ import { buildEmailSubject, buildEmailHtml } from '../lib/emailTemplate.js';
 import { getSupabaseAdmin } from '../lib/supabaseAdmin.js';
 
 // Reçoit le formulaire colonie en multipart/form-data (texte + fichiers).
-// Enregistre d'abord le dossier et les documents dans Supabase (source de vérité,
-// visible dans l'espace Admin) puis tente l'e-mail de notification avec les
-// pièces jointes réelles. Un échec d'e-mail ne fait jamais perdre la demande,
-// déjà enregistrée en base à ce stade — cohérent avec le principe appliqué au
-// reste du site (demande-devis, demande-groupe).
+// Enregistre d'abord la fiche participant (rattachée au séjour colony_stays
+// concerné) et les documents dans Supabase (source de vérité, visible dans
+// l'espace Admin) puis tente l'e-mail de notification avec les pièces
+// jointes réelles. Un échec d'e-mail ne fait jamais perdre l'inscription,
+// déjà enregistrée en base à ce stade.
 
 function isValidSubmissionId(id) {
   return typeof id === 'string' && /^[a-zA-Z0-9-]{10,80}$/.test(id);
@@ -32,14 +32,17 @@ function extOf(name) {
   const m = /\.([a-zA-Z0-9]+)$/.exec(name || '');
   return (m ? m[1] : 'bin').toLowerCase();
 }
+function isUuid(v) {
+  return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
 
 // Upload brut dans le stockage privé, sans toucher à la table documents
 // (utilisé pour les pages supplémentaires d'un carnet de vaccination multi-fichiers :
 // la ligne documents ne peut référencer qu'un seul storage_path par type).
-async function uploadRaw(supabaseAdmin, dossierId, docType, file) {
+async function uploadRaw(supabaseAdmin, registrationId, docType, file) {
   try {
     const safeName = (file.originalFilename || 'fichier').replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `${dossierId}/${docType}/${Date.now()}_${safeName}`;
+    const path = `${registrationId}/${docType}/${Date.now()}_${safeName}`;
     const buffer = fs.readFileSync(file.filepath);
     await supabaseAdmin.storage.from('documents-dossiers').upload(path, buffer, {
       contentType: file.mimetype || 'application/octet-stream',
@@ -51,10 +54,10 @@ async function uploadRaw(supabaseAdmin, dossierId, docType, file) {
 }
 
 // Upload + rattachement à la ligne documents (statut passe à "reçu").
-async function uploadDoc(supabaseAdmin, dossierId, docType, file, label) {
+async function uploadDoc(supabaseAdmin, registrationId, docType, file, label) {
   try {
     const safeName = (file.originalFilename || 'fichier').replace(/[^a-zA-Z0-9._-]/g, '_');
-    const path = `${dossierId}/${docType}/${Date.now()}_${safeName}`;
+    const path = `${registrationId}/${docType}/${Date.now()}_${safeName}`;
     const buffer = fs.readFileSync(file.filepath);
     const { error: upErr } = await supabaseAdmin.storage.from('documents-dossiers').upload(path, buffer, {
       contentType: file.mimetype || 'application/octet-stream',
@@ -66,7 +69,7 @@ async function uploadDoc(supabaseAdmin, dossierId, docType, file, label) {
       file_name: label || file.originalFilename,
       statut: 'recu',
       uploaded_at: new Date().toISOString(),
-    }).eq('dossier_id', dossierId).eq('type', docType);
+    }).eq('colony_registration_id', registrationId).eq('type', docType);
   } catch {
     // Non bloquant : l'e-mail contient de toute façon la pièce jointe réelle.
   }
@@ -135,24 +138,37 @@ export default async function handler(request, response) {
       autorisationCommunicationPublique: fieldStr(fields, 'autorisationCommunicationPublique') === 'true',
     };
 
+    const stayId = meta.sejour && meta.sejour.id;
+    if (!isUuid(stayId)) {
+      return response.status(400).json({ error: 'Séjour sélectionné invalide. Merci de recharger la page et de réessayer.' });
+    }
+
     // ── Enregistrement Supabase (source de vérité, visible dans l'espace Admin) ──
     const supabaseAdmin = getSupabaseAdmin();
-    let dossier = null;
+    let registration = null;
     try {
-      const { data: existing } = await supabaseAdmin.from('dossiers').select('*').eq('numero', dossierNumero).maybeSingle();
+      const { data: stay, error: stayErr } = await supabaseAdmin
+        .from('colony_stays')
+        .select('id, nom, tarif_public, public_registration_open, statut, archived_at')
+        .eq('id', stayId)
+        .maybeSingle();
+      if (stayErr) throw stayErr;
+      if (!stay || !stay.public_registration_open || stay.statut === 'annule' || stay.archived_at) {
+        return response.status(400).json({ error: 'Ce séjour n\'accepte plus d\'inscriptions pour le moment. Merci de rafraîchir la page.' });
+      }
+
+      const { data: existing } = await supabaseAdmin.from('colony_registrations').select('*').eq('numero', dossierNumero).maybeSingle();
       if (existing) {
-        dossier = existing;
+        registration = existing;
       } else {
-        const { data: inserted, error: insErr } = await supabaseAdmin.from('dossiers').insert({
+        const { data: inserted, error: insErr } = await supabaseAdmin.from('colony_registrations').insert({
           numero: dossierNumero,
+          stay_id: stay.id,
           source: 'public',
-          client_type: 'colony',
-          etablissement: `${meta.enfant?.prenom || ''} ${meta.enfant?.nom || ''}`.trim() || 'Colonie',
           enfant_nom: meta.enfant?.nom || null,
           enfant_prenom: meta.enfant?.prenom || null,
           enfant_date_naissance: meta.enfant?.ddn || null,
           enfant_sexe: meta.enfant?.sexe || null,
-          colonie_nom: meta.sejour?.nom || null,
           contact_nom: meta.responsable?.identite || null,
           contact_telephone: meta.responsable?.telephone || null,
           contact_email: meta.responsable?.email || null,
@@ -160,24 +176,26 @@ export default async function handler(request, response) {
           numero_allocataire: meta.numeroAllocataire,
           autorisation_partage_prive: meta.autorisationPartagePrive,
           autorisation_communication_publique: meta.autorisationCommunicationPublique,
+          tarif_sejour: stay.tarif_public ?? null,
+          montant_du: stay.tarif_public ?? null,
         }).select().single();
         if (insErr) throw insErr;
-        dossier = inserted;
+        registration = inserted;
       }
     } catch (error) {
-      return response.status(500).json({ error: 'Échec de l\'enregistrement du dossier. Merci de réessayer ou de nous contacter directement.' });
+      return response.status(500).json({ error: 'Échec de l\'enregistrement de l\'inscription. Merci de réessayer ou de nous contacter directement.' });
     }
 
-    // Documents : uploadés dans le stockage privé et rattachés au dossier (non bloquant).
-    if (ficheFiles[0]) await uploadDoc(supabaseAdmin, dossier.id, 'fiche_inscription_signee', ficheFiles[0]);
+    // Documents : uploadés dans le stockage privé et rattachés à la fiche (non bloquant).
+    if (ficheFiles[0]) await uploadDoc(supabaseAdmin, registration.id, 'fiche_inscription_signee', ficheFiles[0]);
     if (carnetFiles[0]) {
-      await uploadDoc(supabaseAdmin, dossier.id, 'carnet_vaccination', carnetFiles[0], carnetFiles.length > 1 ? `${carnetFiles.length} fichiers déposés` : undefined);
+      await uploadDoc(supabaseAdmin, registration.id, 'carnet_vaccination', carnetFiles[0], carnetFiles.length > 1 ? `${carnetFiles.length} fichiers déposés` : undefined);
       for (let i = 1; i < carnetFiles.length; i++) {
-        await uploadRaw(supabaseAdmin, dossier.id, 'carnet_vaccination', carnetFiles[i]);
+        await uploadRaw(supabaseAdmin, registration.id, 'carnet_vaccination', carnetFiles[i]);
       }
     }
-    if (cafFiles[0]) await uploadDoc(supabaseAdmin, dossier.id, 'justificatif_caf', cafFiles[0]);
-    if (ficheGenereeFiles[0]) await uploadDoc(supabaseAdmin, dossier.id, 'fiche_generee', ficheGenereeFiles[0]);
+    if (cafFiles[0]) await uploadDoc(supabaseAdmin, registration.id, 'justificatif_caf', cafFiles[0]);
+    if (ficheGenereeFiles[0]) await uploadDoc(supabaseAdmin, registration.id, 'fiche_generee', ficheGenereeFiles[0]);
 
     const nomSlug = slugify(meta.enfant?.nom);
     const prenomSlug = slugify(meta.enfant?.prenom);
@@ -227,16 +245,25 @@ export default async function handler(request, response) {
     }
 
     if (emailError) {
+      const enfantLabel = `${meta.enfant?.prenom || ''} ${meta.enfant?.nom || ''}`.trim() || dossierNumero;
       try {
         await supabaseAdmin.from('dossier_journal').insert({
-          dossier_id: dossier.id,
+          colony_registration_id: registration.id,
           action: 'notification_echec',
           details: 'Échec de l\'envoi de la notification e-mail : ' + emailError,
         });
       } catch { /* non bloquant */ }
+      try {
+        await supabaseAdmin.from('notifications').insert({
+          type: 'echec_envoi_mail',
+          colony_registration_id: registration.id,
+          audience: 'admin',
+          message: `Échec de l'envoi du mail — ${enfantLabel} (${meta.sejour?.nom || 'séjour'})`,
+        });
+      } catch { /* non bloquant */ }
     }
 
-    // Le dossier et les documents sont enregistrés : on ne fait jamais échouer
+    // La fiche et les documents sont enregistrés : on ne fait jamais échouer
     // la confirmation famille à cause d'un problème d'e-mail interne.
     return response.status(200).json({ ok: true, dossierNumero, docsStatus });
   } finally {
