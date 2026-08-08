@@ -996,6 +996,7 @@ async function fetchOpenColonyStays() {
         'caf:' + (docs.caf ? 'ok' : (docs.cafRequired ? 'ko' : 'nr')),
       ].join(',');
 
+      if (window.trackEvent) window.trackEvent('inscription_colonie', { dossier: data.dossierNumero });
       window.location.href = 'inscription-confirmee.html?dossier=' + encodeURIComponent(data.dossierNumero) + '&docs=' + encodeURIComponent(docsParam);
     } catch (err) {
       btn.disabled = false;

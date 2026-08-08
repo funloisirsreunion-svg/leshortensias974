@@ -1,3 +1,42 @@
 {
-  "version": 2
+  "version": 2,
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "leshortensias974.fr" }],
+      "destination": "https://www.leshortensias974.fr/$1",
+      "permanent": true
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "leshortensias974.vercel.app" }],
+      "destination": "https://www.leshortensias974.fr/$1",
+      "permanent": true
+    },
+    {
+      "source": "/Contact-Infos-pratiques",
+      "destination": "/contact.html",
+      "permanent": true
+    },
+    {
+      "source": "/Colonies-Vacances-Enfants",
+      "destination": "/colonies.html",
+      "permanent": true
+    },
+    {
+      "source": "/Classe-Volcan-Nature",
+      "destination": "/classe-volcan-nature.html",
+      "permanent": true
+    },
+    {
+      "source": "/espace-ecole/:path*",
+      "destination": "/espace-client/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/seniors.html",
+      "destination": "/index.html",
+      "permanent": true
+    }
+  ]
 }

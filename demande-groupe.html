@@ -328,6 +328,7 @@
 
   <a href="#" class="back-to-top" id="backToTop" aria-label="Retour en haut de page">↑</a>
 
+  <script src="analytics.js"></script>
   <script src="script.js"></script>
   <script>
     const form = document.getElementById('groupeForm');
@@ -470,6 +471,7 @@
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || 'Échec de l\'envoi de la demande.');
+        if (window.trackEvent) window.trackEvent('demande_devis_groupe', {});
         window.location.href = 'contact-confirmee.html';
       } catch (error) {
         showFormMsg(error.message || 'Une erreur est survenue. Merci de réessayer ou de nous contacter directement.', 'error');

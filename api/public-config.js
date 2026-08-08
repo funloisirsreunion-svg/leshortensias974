@@ -8,5 +8,6 @@ export default function handler(req, res) {
     supabaseUrl: process.env.SUPABASE_URL || null,
     supabaseAnonKey: process.env.SUPABASE_ANON_KEY || null,
     configured: Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY),
+    gaMeasurementId: process.env.GA_MEASUREMENT_ID || null,
   });
 }

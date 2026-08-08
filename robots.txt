@@ -1,8 +1,13 @@
 User-agent: *
 Allow: /
+
 Disallow: /admin-dossiers.html
 Disallow: /admin/
+Disallow: /espace-client/
 Disallow: /espace-ecole/
+Disallow: /api/
 Disallow: /reinitialiser-mot-de-passe.html
+Disallow: /inscription-confirmee.html
+Disallow: /contact-confirmee.html
 
 Sitemap: https://www.leshortensias974.fr/sitemap.xml
