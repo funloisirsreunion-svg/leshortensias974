@@ -613,3 +613,15 @@ img { max-width:100%; display:block; }
   .highlight-grid { grid-template-columns:1fr 1fr; }
   .activity-grid { grid-template-columns:1fr; }
 }
+
+/* ===== VIDEO TÉMOIGNAGES COLONIES ===== */
+.colonie-testimonial-video {
+  display: block;
+  width: 100%;
+  max-width: 850px;
+  height: auto;
+  margin: 0 auto;
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0,0,0,.15);
+  background: #000;
+}

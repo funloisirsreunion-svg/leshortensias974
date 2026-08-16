@@ -161,6 +161,12 @@
             </div>
             <div class="form-row">
               <div class="form-group">
+                <label for="codePostal">Code postal de l'établissement</label>
+                <input type="text" id="codePostal" name="Code postal" inputmode="numeric" maxlength="10" placeholder="ex : 97400" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
                 <label for="refNom">Nom <span style="color:#c0392b;">*</span></label>
                 <input type="text" id="refNom" name="Référent – Nom" required placeholder="ex : Dupont" autocomplete="family-name" />
               </div>
@@ -346,7 +352,9 @@
 
   <script src="analytics.js"></script>
   <script src="script.js"></script>
-  <script>
+  <script type="module">
+    import { computeClassEstimate } from './lib/appConstants.js';
+
     // ── Niveaux ──────────────────────────────────────────
     const niveauxGroup  = document.getElementById('niveauxGroup');
     const niveauxHidden = document.getElementById('niveauxHidden');
@@ -357,51 +365,42 @@
     }
 
     // ── Grille tarifaire ─────────────────────────────────
-    const TARIFS = {
-      'Classe Volcan': {
-        '3 jours': { eleve: 162,  accomp: 48.60 },
-        '4 jours': { eleve: 208,  accomp: 83.20 },
-        '5 jours': { eleve: 250,  accomp: 125   }
-      },
-      'Classe Nature': {
-        '3 jours': { eleve: 156,  accomp: 46.80 },
-        '4 jours': { eleve: 200,  accomp: 80    },
-        '5 jours': { eleve: 240,  accomp: 120   }
-      }
-    };
+    // Source unique : lib/appConstants.js (CLASS_PRICING). Ne jamais
+    // dupliquer ces valeurs ici — c'est exactement pour éviter ça que
+    // cette grille a été centralisée.
+    const PROGRAMME_KEYS = { 'Classe Volcan': 'volcan', 'Classe Nature': 'nature' };
+    const DUREE_KEYS = { '3 jours': 3, '4 jours': 4, '5 jours': 5 };
 
     function fmt(n) {
       return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
     }
 
     // ── Estimateur ────────────────────────────────────────
+    let lastEstimate = null;
     function calculateEstimate() {
       const progEl  = document.querySelector('input[name="Programme souhaité"]:checked');
-      const duree   = document.getElementById('duree').value;
+      const dureeVal = document.getElementById('duree').value;
       const nbElev  = parseInt(document.getElementById('nbEleves').value)  || 0;
       const nbProfs = parseInt(document.getElementById('nbProfs').value)   || 0;
       const nbAcc   = parseInt(document.getElementById('nbAccomp').value)  || 0;
       const card    = document.getElementById('estimateurCard');
 
-      if (!progEl || !duree || !nbElev) { card.style.display = 'none'; return; }
-
-      const tarif = TARIFS[progEl.value] && TARIFS[progEl.value][duree];
-      if (!tarif) { card.style.display = 'none'; return; }
-
-      const totalElev = nbElev * tarif.eleve;
-      const totalAcc  = nbAcc  * tarif.accomp;
-      const total     = totalElev + totalAcc;
+      const programme = progEl ? PROGRAMME_KEYS[progEl.value] : null;
+      const duree = DUREE_KEYS[dureeVal];
+      const est = computeClassEstimate({ programme, duree, nbEleves: nbElev, nbProfs, nbAccompagnateurs: nbAcc });
+      lastEstimate = est;
+      if (!est) { card.style.display = 'none'; return; }
 
       document.getElementById('estimateurMontant').textContent =
-        total.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        est.total.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       document.getElementById('estimateurSubtitle').textContent =
-        `${progEl.value} · ${duree}`;
+        `${progEl.value} · ${dureeVal}`;
 
-      let detail = `<div class="est-line"><span>${nbElev} élève(s) × ${fmt(tarif.eleve)}</span><span>${fmt(totalElev)}</span></div>`;
-      if (nbProfs > 0)
-        detail += `<div class="est-line"><span>${nbProfs} professeur(s)</span><span class="est-gratuit">Gratuit ✓</span></div>`;
-      if (nbAcc > 0)
-        detail += `<div class="est-line"><span>${nbAcc} accompagnateur(s) × ${fmt(tarif.accomp)}</span><span>${fmt(totalAcc)}</span></div>`;
+      let detail = `<div class="est-line"><span>${est.nbEleves} élève(s) × ${fmt(est.tarifEleve)}</span><span>${fmt(est.montantEleves)}</span></div>`;
+      if (est.nbProfs > 0)
+        detail += `<div class="est-line"><span>${est.nbProfs} professeur(s)</span><span class="est-gratuit">Gratuit ✓</span></div>`;
+      if (est.nbAccompagnateurs > 0)
+        detail += `<div class="est-line"><span>${est.nbAccompagnateurs} accompagnateur(s) × ${fmt(est.tarifAccompagnateur)}</span><span>${fmt(est.montantAccompagnateurs)}</span></div>`;
 
       document.getElementById('estimateurDetail').innerHTML = detail;
       card.style.display = 'block';
@@ -479,6 +478,7 @@
         honeypot: document.getElementById('honeypot').value,
         etablissement: document.getElementById('nomEcole').value,
         commune: document.getElementById('commune').value,
+        codePostal: document.getElementById('codePostal').value,
         contactNom: document.getElementById('refNom').value,
         contactPrenom: document.getElementById('refPrenom').value,
         contactFonction: document.getElementById('refFonction').value,
@@ -492,9 +492,7 @@
         programme: progEl.value,
         duree: document.getElementById('duree').value,
         periode: document.getElementById('periode').value,
-        estimationTarifaire: document.getElementById('estimateurCard').style.display === 'block'
-          ? (document.getElementById('estimateurMontant').textContent + ' € TTC (estimation indicative)')
-          : null,
+        estimationTarifaire: lastEstimate ? JSON.stringify(lastEstimate) : null,
       };
 
       try {

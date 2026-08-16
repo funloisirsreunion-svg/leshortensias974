@@ -27,7 +27,7 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
-    import { STATUTS, DOC_STATUTS, REGIMES, NIVEAUX, JOURNAL_LABELS, ACCESS_STATUTS, CLIENT_TYPES, STRUCTURE_TYPES, FORMULES, ALL_DOCUMENT_TYPES, DOCUMENT_SOURCES, labelForDocumentType, labelOf, formatDateFr, formatMontant, docCompleteness } from '../lib/appConstants.js';
+    import { STATUTS, DOC_STATUTS, REGIMES, NIVEAUX, JOURNAL_LABELS, ACCESS_STATUTS, CLIENT_TYPES, STRUCTURE_TYPES, FORMULES, ALL_DOCUMENT_TYPES, DOCUMENT_SOURCES, labelForDocumentType, labelOf, formatDateFr, formatMontant, docCompleteness, computeClassEstimate } from '../lib/appConstants.js';
 
     const params = new URLSearchParams(window.location.search);
     const dossierId = params.get('id');
@@ -39,6 +39,68 @@
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
     function opt(list, val, key='value', lab='label') {
       return list.map(o => `<option value="${o[key]}" ${o[key]===val?'selected':''}>${o[lab]}</option>`).join('');
+    }
+
+    // Lit les valeurs actuelles des champs programme/durée/effectifs directement dans
+    // le DOM (répartis entre generalForm et effectifsForm) — permet un recalcul en
+    // temps réel avant même l'enregistrement.
+    function readCurrentSchoolInputs() {
+      const val = (name) => document.querySelector(`[name="${name}"]`)?.value;
+      return {
+        programme: val('programme') || null,
+        duree: val('duree') ? Number(val('duree')) : null,
+        nbEleves: val('effectif_prev_eleves') ? Number(val('effectif_prev_eleves')) : null,
+        nbProfs: val('effectif_prev_profs') ? Number(val('effectif_prev_profs')) : null,
+        nbAccompagnateurs: val('effectif_prev_accompagnateurs') ? Number(val('effectif_prev_accompagnateurs')) : null,
+      };
+    }
+
+    function currentClassEstimate() {
+      return computeClassEstimate(readCurrentSchoolInputs());
+    }
+
+    function renderEstimation() {
+      const box = document.getElementById('estimationContent');
+      if (!box) return;
+      const est = currentClassEstimate();
+      if (!est) {
+        box.innerHTML = `<p style="color:var(--texte-clair);">Renseignez le programme, la durée et le nombre d'élèves pour voir apparaître une estimation.</p>`;
+        return;
+      }
+      const progLabel = est.programme === 'volcan' ? 'Classe Volcan' : 'Classe Nature';
+      box.innerHTML = `
+        <div class="app-grid-3" style="margin-bottom:10px;row-gap:6px;">
+          <div><strong>Programme :</strong> ${esc(progLabel)}</div>
+          <div><strong>Durée :</strong> ${est.duree} jours</div>
+          <div><strong>Élèves :</strong> ${est.nbEleves}</div>
+          <div><strong>Professeurs :</strong> ${est.nbProfs}</div>
+          <div><strong>Accompagnateurs :</strong> ${est.nbAccompagnateurs}</div>
+        </div>
+        <p style="font-size:1.3rem;font-weight:700;color:var(--vert-fonce);margin:10px 0;">Montant prévisionnel : ${formatMontant(est.total)} TTC</p>
+        <details>
+          <summary style="cursor:pointer;color:var(--vert-fonce);font-weight:600;">Voir le détail</summary>
+          <div class="app-table-wrap" style="margin-top:10px;">
+          <table class="app-table" style="max-width:480px;min-width:0;">
+            <tbody>
+              <tr><td>${est.nbEleves} élèves × ${formatMontant(est.tarifEleve)}</td><td style="text-align:right;">${formatMontant(est.montantEleves)}</td></tr>
+              <tr><td>${est.nbProfs} professeurs × ${formatMontant(est.tarifProf)}</td><td style="text-align:right;">${formatMontant(est.montantProfs)}</td></tr>
+              <tr><td>${est.nbAccompagnateurs} accompagnateurs × ${formatMontant(est.tarifAccompagnateur)}</td><td style="text-align:right;">${formatMontant(est.montantAccompagnateurs)}</td></tr>
+              <tr style="font-weight:700;border-top:2px solid var(--beige-fonce);"><td>Estimation totale</td><td style="text-align:right;">${formatMontant(est.total)}</td></tr>
+            </tbody>
+          </table>
+          </div>
+        </details>`;
+    }
+
+    function attachEstimationListeners() {
+      if (dossier.client_type !== 'school') return;
+      renderEstimation();
+      ['programme', 'duree', 'effectif_prev_eleves', 'effectif_prev_profs', 'effectif_prev_accompagnateurs'].forEach((name) => {
+        const el = document.querySelector(`[name="${name}"]`);
+        if (!el) return;
+        el.addEventListener('input', renderEstimation);
+        el.addEventListener('change', renderEstimation);
+      });
     }
 
     async function init() {
@@ -174,9 +236,10 @@
 
       // school (par défaut)
       return `
-            <div class="app-grid-2">
+            <div class="app-grid-3">
               <div class="app-field"><label>Établissement</label><input type="text" name="etablissement" value="${esc(dossier.etablissement)}" required /></div>
               <div class="app-field"><label>Commune</label><input type="text" name="commune" value="${esc(dossier.commune)}" /></div>
+              <div class="app-field"><label>Code postal</label><input type="text" name="code_postal" value="${esc(dossier.code_postal)}" inputmode="numeric" maxlength="10" /></div>
             </div>
             <div class="app-field"><label>Adresse</label><input type="text" name="adresse" value="${esc(dossier.adresse)}" /></div>
             <div class="app-grid-3">
@@ -257,6 +320,13 @@
             <button type="submit" class="app-btn" style="margin-top:12px;">Enregistrer</button>
           </form>
         </div>
+
+        ${dossier.client_type === 'school' ? `
+        <div class="app-card" id="estimationCard">
+          <h2>💶 Estimation du devis</h2>
+          <div id="estimationContent"></div>
+          <p style="margin-top:10px;font-size:.85rem;color:var(--texte-clair);font-style:italic;">Estimation indicative calculée sur les effectifs prévisionnels. Le montant définitif pourra évoluer selon les effectifs et prestations réellement retenus.</p>
+        </div>` : ''}
 
         <div class="app-card">
           <h2>Partie financière</h2>
@@ -423,6 +493,7 @@
       `;
 
       bindEvents();
+      attachEstimationListeners();
     }
 
     function today() { return new Date().toISOString().slice(0, 10); }
@@ -448,10 +519,13 @@
             ...payload,
             etablissement: fd.get('etablissement'),
             commune: g('commune'),
+            code_postal: g('code_postal'),
             adresse: g('adresse'),
             programme: g('programme'),
             duree: fd.get('duree') ? Number(fd.get('duree')) : null,
           };
+          const est = currentClassEstimate();
+          if (est) payload.estimation_tarifaire = JSON.stringify(est);
         } else if (dossier.client_type === 'group') {
           payload = {
             ...payload,
@@ -674,6 +748,14 @@
               effectif_def_profs: fd.get('effectif_def_profs') ? Number(fd.get('effectif_def_profs')) : null,
               effectif_def_accompagnateurs: fd.get('effectif_def_accompagnateurs') ? Number(fd.get('effectif_def_accompagnateurs')) : null,
             };
+            const est = computeClassEstimate({
+              programme: dossier.programme,
+              duree: dossier.duree,
+              nbEleves: payload.effectif_prev_eleves,
+              nbProfs: payload.effectif_prev_profs,
+              nbAccompagnateurs: payload.effectif_prev_accompagnateurs,
+            });
+            if (est) payload.estimation_tarifaire = JSON.stringify(est);
           } else if (dossier.client_type === 'group') {
             payload = {
               ...payload,

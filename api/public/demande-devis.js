@@ -30,6 +30,7 @@ export default async function handler(req, res) {
 
   const etablissement = str(body.etablissement);
   const commune = str(body.commune);
+  const codePostal = str(body.codePostal);
   const contactNom = str(body.contactNom);
   const contactPrenom = str(body.contactPrenom);
   const contactFonction = str(body.contactFonction);
@@ -78,6 +79,7 @@ export default async function handler(req, res) {
         source: 'public',
         etablissement,
         commune,
+        code_postal: codePostal || null,
         contact_nom: contactNom,
         contact_prenom: contactPrenom,
         contact_fonction: contactFonction || null,

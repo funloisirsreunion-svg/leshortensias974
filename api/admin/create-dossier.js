@@ -44,6 +44,7 @@ export default async function handler(req, res) {
       client_type: 'school',
       etablissement,
       commune: str(body.commune) || null,
+      code_postal: str(body.code_postal) || null,
       adresse: str(body.adresse) || null,
       contact_nom: str(body.contact_nom) || null,
       contact_prenom: str(body.contact_prenom) || null,
