@@ -2,6 +2,7 @@ import { Resend } from 'resend';
 import { getSupabaseAdmin } from '../../lib/supabaseAdmin.js';
 import { assignGrpNumber } from '../../lib/grpDossierNumber.js';
 import { buildDemandeGroupeSubject, buildDemandeGroupeHtml } from '../../lib/demandeGroupeEmail.js';
+import { findOrCreateOrganization } from '../../lib/organizations.js';
 
 // Endpoint public (aucune authentification) : demande de devis Groupe Indépendant.
 // Toujours enregistrer la demande AVANT de tenter l'e-mail.
@@ -58,10 +59,12 @@ export default async function handler(req, res) {
   let dossier;
   try {
     const numero = await assignGrpNumber();
+    const { organizationId } = await findOrCreateOrganization(supabaseAdmin, { email: contactEmail, nom: structureNom });
     const { data, error } = await supabaseAdmin
       .from('dossiers')
       .insert({
         numero,
+        organization_id: organizationId,
         source: 'public',
         client_type: 'group',
         etablissement: structureNom,

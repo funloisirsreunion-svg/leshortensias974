@@ -28,13 +28,15 @@
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
     import { STATUTS, DOC_STATUTS, REGIMES, NIVEAUX, JOURNAL_LABELS, ACCESS_STATUTS, CLIENT_TYPES, STRUCTURE_TYPES, FORMULES, ALL_DOCUMENT_TYPES, DOCUMENT_SOURCES, labelForDocumentType, labelOf, formatDateFr, formatMontant, docCompleteness, computeClassEstimate } from '../lib/appConstants.js';
+    import { searchOrganizations, attachDossierToOrganization } from '../lib/organizationsClient.js';
 
     const params = new URLSearchParams(window.location.search);
     const dossierId = params.get('id');
     const root = document.getElementById('appRoot');
-    let supabase, session, dossier, regimes, documents, paiements, signalements, historique, journal, acces;
+    let supabase, session, dossier, regimes, documents, paiements, signalements, historique, journal, acces, organization;
     let showNonRequis = false;
     let deletePanelOpen = false;
+    let changeClientOpen = false, changeClientResults = [], changeClientTerm = '';
 
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
     function opt(list, val, key='value', lab='label') {
@@ -132,6 +134,11 @@
       if (dErr || !d) { root.innerHTML = `<div class="app-msg app-msg-error">Dossier introuvable.</div>`; return; }
       dossier = d; regimes = r || []; documents = docs || []; paiements = pmts || []; signalements = sig || [];
       historique = hist || []; journal = journ || []; acces = accesRows || [];
+      organization = null;
+      if (dossier.organization_id) {
+        const { data: org } = await supabase.from('organizations').select('*').eq('id', dossier.organization_id).maybeSingle();
+        organization = org || null;
+      }
       render();
     }
 
@@ -292,6 +299,22 @@
       root.innerHTML = `
         <div class="app-card">
           <h2>${esc(dossier.etablissement)} — <span style="color:var(--or);">${esc(dossier.numero)}</span> <span class="app-badge app-badge-gray">${typeInfo.badge} ${typeInfo.label}</span> ${dossier.source === 'public' ? '<span class="app-badge app-badge-orange">Demande site public</span>' : ''} ${dossier.archived_at ? '<span class="app-badge app-badge-gray">📦 Archivé</span>' : ''}</h2>
+          ${dossier.client_type !== 'colony' ? `
+          <p style="font-size:.88rem;margin-bottom:14px;">
+            Client : ${organization ? `<a href="client.html?id=${organization.id}" style="color:var(--vert-fonce);font-weight:700;">${esc(organization.nom)} →</a>` : '<span style="color:var(--texte-clair);">Aucun</span>'}
+            <button type="button" class="app-btn app-btn-sm app-btn-outline" id="changeClientBtn" style="margin-left:10px;">Changer de client</button>
+          </p>
+          ${changeClientOpen ? `
+          <div class="app-card" style="background:var(--gris-clair);box-shadow:none;margin-bottom:18px;">
+            <div class="app-field" style="max-width:420px;"><input type="search" id="changeClientSearch" placeholder="Rechercher un client par nom ou e-mail…" value="${esc(changeClientTerm)}" /></div>
+            <div id="msgChangeClient"></div>
+            <ul class="app-todo-list" style="margin-top:10px;">
+              ${changeClientResults.filter(o => o.id !== dossier.organization_id).map(o => `
+                <li><span class="app-todo-dot"></span>${esc(o.nom)} ${o.contact_email ? '— ' + esc(o.contact_email) : ''}
+                  <button class="app-btn app-btn-sm" style="margin-left:auto;" data-choose-client="${o.id}">Choisir</button>
+                </li>`).join('') || `<li>${changeClientTerm ? 'Aucun résultat.' : 'Tapez pour rechercher.'}</li>`}
+            </ul>
+          </div>` : ''}` : ''}
           <div id="msgActions"></div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
             ${quickActions.map(a => `<button class="app-btn app-btn-sm ${a.cls}" data-quick-action="${a.id}">${a.label}</button>`).join('')}
@@ -499,7 +522,38 @@
     function today() { return new Date().toISOString().slice(0, 10); }
     function showMsg(id, text, type='error') { const el = document.getElementById(id); if (el) el.innerHTML = `<div class="app-msg app-msg-${type}">${esc(text)}</div>`; }
 
+    let changeClientDebounce;
     function bindEvents() {
+      const changeClientBtn = document.getElementById('changeClientBtn');
+      if (changeClientBtn) {
+        changeClientBtn.addEventListener('click', () => { changeClientOpen = !changeClientOpen; changeClientTerm = ''; changeClientResults = []; render(); });
+      }
+      const changeClientSearch = document.getElementById('changeClientSearch');
+      if (changeClientSearch) {
+        changeClientSearch.addEventListener('input', (e) => {
+          changeClientTerm = e.target.value;
+          clearTimeout(changeClientDebounce);
+          changeClientDebounce = setTimeout(async () => {
+            changeClientResults = await searchOrganizations(supabase, changeClientTerm);
+            render();
+            document.getElementById('changeClientSearch')?.focus();
+          }, 250);
+        });
+      }
+      document.querySelectorAll('[data-choose-client]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const newOrgId = btn.dataset.chooseClient;
+          if (!window.confirm('Rattacher ce dossier à ce client ?')) return;
+          try {
+            await attachDossierToOrganization(supabase, dossierId, newOrgId, session.user.id);
+            changeClientOpen = false;
+            await loadAll();
+          } catch (error) {
+            showMsg('msgChangeClient', error.message);
+          }
+        });
+      });
+
       document.getElementById('generalForm').addEventListener('submit', async (e) => {
         e.preventDefault();
         const fd = new FormData(e.target);

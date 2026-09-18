@@ -10,11 +10,6 @@
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../style.css" />
   <link rel="stylesheet" href="../app.css" />
-  <style>
-    .sejour-card { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px; border:1px solid var(--beige-fonce); border-radius:var(--radius-sm); margin-bottom:14px; flex-wrap:wrap; }
-    .sejour-card:hover { border-color:var(--vert-moyen); }
-    .sejour-title { font-family:'Playfair Display',serif; font-size:1.1rem; color:var(--vert-fonce); margin-bottom:4px; }
-  </style>
 </head>
 <body class="app-body">
 
@@ -36,10 +31,12 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
-    import { STATUTS, labelOf, formatDateFr } from '../lib/appConstants.js';
+    import { docCompleteness, formatMontant } from '../lib/appConstants.js';
+    import { mountDossierPanel, buildTodoList, stayDates, stayCategory } from './lib/dossierPanel.js';
 
     const root = document.getElementById('appRoot');
     let supabase;
+    const mountedPanels = {}; // dossierId -> { reload }
 
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -61,7 +58,7 @@
 
       supabase.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') window.location.href = 'index.html'; });
 
-      await loadSejours();
+      await loadSejours(session);
       await loadNotifications();
     }
 
@@ -97,8 +94,13 @@
       panel.querySelectorAll('[data-notif-id]').forEach(li => {
         li.addEventListener('click', async () => {
           await supabase.from('notifications').update({ lu: true }).eq('id', li.dataset.notifId);
-          if (li.dataset.notifDossier) window.location.href = `dossier.html?id=${li.dataset.notifDossier}`;
-          else { await loadNotifications(); renderNotifPanel(); }
+          await loadNotifications();
+          if (li.dataset.notifDossier) {
+            document.getElementById('notifPanel').style.display = 'none';
+            openStay(li.dataset.notifDossier);
+          } else {
+            renderNotifPanel();
+          }
         });
       });
     }
@@ -111,7 +113,69 @@
       panel.style.display = 'block';
     });
 
-    async function loadSejours() {
+    function stayTitle(d) {
+      if (d.client_type === 'group') return `Groupe — ${d.structure_nom || d.etablissement}`;
+      const programmeLabel = d.programme === 'volcan' ? 'Classe Volcan' : d.programme === 'nature' ? 'Classe Nature' : 'Séjour';
+      return `${programmeLabel} — ${d.etablissement}`;
+    }
+
+    function dateRangeLabel(d) {
+      const { debut, fin, confirmed } = stayDates(d);
+      if (!debut) return 'Dates à préciser';
+      const fmt = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+      const range = fin && fin !== debut ? `${fmt(debut)} → ${fmt(fin)}` : fmt(debut);
+      return confirmed ? range : `${range} (proposé)`;
+    }
+
+    function stayCard(d, documentsByDossier) {
+      const docs = documentsByDossier[d.id] || [];
+      const todo = buildTodoList(d, docs);
+      const completeness = docCompleteness(docs);
+      const reste = d.montant_facture != null ? Number(d.montant_facture) - Number(d.montant_paye || 0) : null;
+      const actionRequired = todo.length > 0;
+
+      return `
+      <details class="stay-accordion" data-dossier-id="${d.id}">
+        <summary class="stay-summary">
+          <div class="stay-summary-main">
+            <div class="stay-summary-title">${esc(stayTitle(d))}</div>
+            <div class="stay-summary-meta">${dateRangeLabel(d)} · Dossier ${esc(d.numero)}</div>
+            <div class="stay-summary-indicators">
+              ${completeness.total ? `<span class="app-badge app-badge-gray">Documents : ${completeness.valides}/${completeness.total}</span>` : ''}
+              ${reste != null ? `<span class="app-badge app-badge-gray">Reste à payer : ${formatMontant(reste)}</span>` : ''}
+            </div>
+          </div>
+          <span class="app-badge app-badge-${actionRequired ? 'red' : 'green'} stay-status-badge">
+            ${actionRequired ? `🔴 ${todo.length} action${todo.length > 1 ? 's' : ''} nécessaire${todo.length > 1 ? 's' : ''}` : '🟢 Dossier à jour'}
+          </span>
+          <span class="stay-chevron">▾</span>
+        </summary>
+        <div class="stay-body" data-dossier-body="${d.id}">
+          <div class="app-loading">Chargement…</div>
+        </div>
+      </details>`;
+    }
+
+    function bindAccordions(session) {
+      root.querySelectorAll('.stay-accordion').forEach((details) => {
+        details.addEventListener('toggle', () => {
+          if (!details.open) return;
+          const dossierId = details.dataset.dossierId;
+          if (mountedPanels[dossierId]) return; // déjà monté, ne recharge pas au re-repli/ouverture
+          const body = details.querySelector(`[data-dossier-body="${dossierId}"]`);
+          mountedPanels[dossierId] = mountDossierPanel(body, { supabase, session, dossierId });
+        }, { once: false });
+      });
+    }
+
+    function openStay(dossierId) {
+      const details = root.querySelector(`.stay-accordion[data-dossier-id="${dossierId}"]`);
+      if (!details) return;
+      details.open = true;
+      details.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    async function loadSejours(session) {
       const { data: acces, error } = await supabase
         .from('dossier_acces')
         .select('*, dossiers(*)')
@@ -120,34 +184,47 @@
 
       if (error) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(error.message)}</div>`; return; }
 
-      if (!acces || acces.length === 0) {
+      const dossiers = (acces || []).map(a => a.dossiers).filter(Boolean);
+
+      if (!dossiers.length) {
         root.innerHTML = `<div class="app-msg app-msg-info">Aucun séjour n'est encore associé à votre compte. Contactez Fun Loisirs Réunion.</div>`;
         return;
       }
 
+      const { data: docs } = await supabase.from('documents').select('*').in('dossier_id', dossiers.map(d => d.id));
+      const documentsByDossier = {};
+      (docs || []).forEach(doc => { (documentsByDossier[doc.dossier_id] = documentsByDossier[doc.dossier_id] || []).push(doc); });
+
+      const buckets = { a_venir: [], en_cours: [], passes: [] };
+      dossiers.forEach(d => buckets[stayCategory(d)].push(d));
+      buckets.a_venir.sort((a, b) => (stayDates(a).debut || '9999') > (stayDates(b).debut || '9999') ? 1 : -1);
+      buckets.en_cours.sort((a, b) => (stayDates(a).debut || '9999') > (stayDates(b).debut || '9999') ? 1 : -1);
+      buckets.passes.sort((a, b) => (stayDates(b).debut || '') > (stayDates(a).debut || '') ? 1 : -1);
+
       root.innerHTML = `
+        <h2 style="color:var(--vert-fonce);margin-bottom:16px;">Mes séjours</h2>
+
+        ${buckets.en_cours.length ? `
         <div class="app-card">
-          <h2>Mes séjours</h2>
-          ${acces.map(a => {
-            const d = a.dossiers;
-            if (!d) return '';
-            const dateLabel = d.date_confirmee_debut
-              ? formatDateFr(d.date_confirmee_debut)
-              : (d.date_proposee ? formatDateFr(d.date_proposee) + ' (proposée)' : 'Dates à venir');
-            const programmeLabel = d.programme === 'volcan' ? 'Classe Volcan' : d.programme === 'nature' ? 'Classe Nature' : 'Séjour';
-            return `
-            <a href="dossier.html?id=${d.id}" style="text-decoration:none;color:inherit;">
-              <div class="sejour-card">
-                <div>
-                  <div class="sejour-title">${programmeLabel} — ${esc(d.etablissement)}</div>
-                  <div style="font-size:.85rem;color:var(--texte-clair);">Dossier ${esc(d.numero)} · ${dateLabel}</div>
-                </div>
-                <span class="app-badge app-badge-gray">${labelOf(STATUTS, d.statut)}</span>
-              </div>
-            </a>`;
-          }).join('')}
+          <h3 style="margin-top:0;">En cours (${buckets.en_cours.length})</h3>
+          ${buckets.en_cours.map(d => stayCard(d, documentsByDossier)).join('')}
+        </div>` : ''}
+
+        <div class="app-card">
+          <h3 style="margin-top:0;">À venir (${buckets.a_venir.length})</h3>
+          ${buckets.a_venir.map(d => stayCard(d, documentsByDossier)).join('') || '<p style="color:var(--texte-clair);font-size:.9rem;">Aucun séjour à venir pour le moment.</p>'}
         </div>
+
+        ${buckets.passes.length ? `
+        <details class="app-card past-stays-toggle">
+          <summary class="past-stays-summary">Afficher les séjours passés (${buckets.passes.length}) <span class="stay-chevron">▾</span></summary>
+          <div style="margin-top:16px;">
+            ${buckets.passes.map(d => stayCard(d, documentsByDossier)).join('')}
+          </div>
+        </details>` : ''}
       `;
+
+      bindAccordions(session);
     }
 
     document.getElementById('logoutBtn').addEventListener('click', async () => {

@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fiche client — Administration | Les Hortensias</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../app.css" />
+</head>
+<body class="app-body">
+  <div class="app-topbar">
+    <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
+    <div class="app-user">
+      <a href="clients.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Clients</a>
+      <button class="app-logout" id="logoutBtn">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="app-container" id="appRoot">
+    <div class="app-loading">Chargement du client…</div>
+  </div>
+
+  <script type="module">
+    import { getSupabaseClient } from '../lib/supabaseClient.js';
+    import { STATUTS, CLIENT_TYPES, ACCESS_STATUTS, labelOf, formatDateFr, formatMontant } from '../lib/appConstants.js';
+    import { getOrganizationDetail, searchAttachableDossiers, attachDossierToOrganization, financeSummary } from '../lib/organizationsClient.js';
+
+    const organizationId = new URLSearchParams(window.location.search).get('id');
+    const root = document.getElementById('appRoot');
+    let supabase, session, organization, dossiers, acces;
+    let attachResults = [], attachTerm = '', attachMsg = '';
+
+    function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    async function init() {
+      if (!organizationId) { root.innerHTML = `<div class="app-msg app-msg-error">Client non spécifié.</div>`; return; }
+      try { supabase = await getSupabaseClient(); }
+      catch (e) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(e.message)}</div>`; return; }
+
+      const { data: { session: s } } = await supabase.auth.getSession();
+      if (!s) { window.location.href = 'index.html'; return; }
+      session = s;
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+      if (!profile || profile.role !== 'admin') { await supabase.auth.signOut(); window.location.href = 'index.html'; return; }
+
+      await loadAll();
+    }
+
+    async function loadAll() {
+      try {
+        const detail = await getOrganizationDetail(supabase, organizationId);
+        organization = detail.organization;
+        dossiers = detail.dossiers;
+        acces = detail.acces;
+      } catch (e) {
+        root.innerHTML = `<div class="app-msg app-msg-error">Client introuvable.</div>`;
+        return;
+      }
+      render();
+    }
+
+    function accessSummary() {
+      if (acces.some((a) => a.statut === 'compte_active')) return { label: '🟢 Actif', cls: 'green' };
+      if (acces.some((a) => a.statut === 'invitation_envoyee')) return { label: '🟠 Invitation envoyée', cls: 'orange' };
+      return { label: '⚪ Aucun accès créé', cls: 'gray' };
+    }
+
+    function latestContact() {
+      const withContact = dossiers.filter((d) => d.contact_email);
+      return withContact[0] || dossiers[0] || {};
+    }
+
+    function render() {
+      const contact = latestContact();
+      const access = accessSummary();
+      const finance = financeSummary(dossiers);
+
+      root.innerHTML = `
+        <div class="app-card">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;">
+            <div>
+              <h2 style="margin-bottom:4px;">${esc(organization.nom)}</h2>
+              <p style="color:var(--texte-clair);font-size:.9rem;">
+                Contact : ${esc(contact.contact_prenom || '')} ${esc(contact.contact_nom || '')}
+                ${contact.contact_email ? ' · ' + esc(contact.contact_email) : ''}
+                ${contact.contact_telephone ? ' · ' + esc(contact.contact_telephone) : ''}
+              </p>
+            </div>
+            <span class="app-badge app-badge-${access.cls}">Accès client : ${access.label}</span>
+          </div>
+          <div id="msgRename"></div>
+          <form id="renameForm" style="margin-top:14px;display:flex;gap:10px;align-items:end;flex-wrap:wrap;">
+            <div class="app-field" style="margin:0;flex:1;min-width:220px;"><label>Nom du client (interne, ne modifie pas les dossiers)</label><input type="text" name="nom" value="${esc(organization.nom)}" /></div>
+            <button type="submit" class="app-btn app-btn-sm app-btn-outline">Renommer</button>
+          </form>
+        </div>
+
+        <div class="app-card">
+          <h2>Synthèse financière (${dossiers.length} dossier${dossiers.length > 1 ? 's' : ''})</h2>
+          <div class="app-grid-3">
+            <div class="app-kpi"><div class="app-kpi-num">${formatMontant(finance.devis)}</div><div class="app-kpi-label">Total devis</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${formatMontant(finance.facture)}</div><div class="app-kpi-label">Total facturé</div></div>
+            <div class="app-kpi"><div class="app-kpi-num">${formatMontant(finance.paye)}</div><div class="app-kpi-label">Total payé</div></div>
+          </div>
+          <div class="app-grid-3" style="margin-top:12px;">
+            <div class="app-kpi"><div class="app-kpi-num">${formatMontant(finance.reste)}</div><div class="app-kpi-label">Reste à payer (tous dossiers)</div></div>
+          </div>
+          <p style="font-size:.8rem;color:var(--texte-clair);margin-top:10px;">Les paiements restent rattachés à chaque dossier individuellement — cette synthèse ne fait qu'additionner les montants, elle ne les mélange pas.</p>
+        </div>
+
+        <div class="app-card">
+          <h2>Dossiers associés (${dossiers.length})</h2>
+          <div class="app-table-wrap">
+            <table class="app-table">
+              <thead><tr><th>Réf</th><th>Type</th><th>Dates</th><th>Statut</th><th></th></tr></thead>
+              <tbody>
+                ${dossiers.map((d) => {
+                  const typeInfo = CLIENT_TYPES.find((t) => t.value === d.client_type) || CLIENT_TYPES[0];
+                  const dateLabel = d.date_confirmee_debut ? formatDateFr(d.date_confirmee_debut) + (d.date_confirmee_fin ? ' → ' + formatDateFr(d.date_confirmee_fin) : '') : (d.date_proposee ? formatDateFr(d.date_proposee) + ' (proposée)' : '—');
+                  return `
+                  <tr>
+                    <td><a class="row-link" href="dossier.html?id=${d.id}">${esc(d.numero)}</a></td>
+                    <td><span class="app-badge app-badge-gray">${typeInfo.badge} ${typeInfo.label}</span></td>
+                    <td>${dateLabel}</td>
+                    <td>${labelOf(STATUTS, d.statut)} ${d.archived_at ? '<span class="app-badge app-badge-gray">📦 Archivé</span>' : ''}</td>
+                    <td><a class="app-btn app-btn-sm app-btn-outline" href="dossier.html?id=${d.id}">Ouvrir</a></td>
+                  </tr>`;
+                }).join('') || `<tr><td colspan="5" style="text-align:center;padding:20px;">Aucun dossier.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="app-card">
+          <h2>Accès client</h2>
+          ${acces.length ? acces.map((a) => {
+            const statutInfo = ACCESS_STATUTS.find((s) => s.value === a.statut) || {};
+            return `<div class="app-doc-row">
+              <span class="app-doc-name">${esc(a.profiles?.email || '—')} ${a.profiles?.full_name ? '(' + esc(a.profiles.full_name) + ')' : ''}</span>
+              <span class="app-badge app-badge-${statutInfo.color || 'gray'}">${statutInfo.label || a.statut}</span>
+            </div>`;
+          }).join('') : '<p style="font-size:.85rem;color:var(--texte-clair);">Aucun accès créé pour l\'instant. Ouvrez un dossier pour créer/rattacher un accès.</p>'}
+        </div>
+
+        <div class="app-card">
+          <h2>Rattacher un dossier existant à ce client</h2>
+          <p style="font-size:.85rem;color:var(--texte-clair);margin-bottom:12px;">
+            Utile si un dossier a été créé avec une autre adresse e-mail ou un nom d'établissement légèrement différent (§15).
+          </p>
+          <div id="msgAttach">${attachMsg ? `<div class="app-msg app-msg-info">${esc(attachMsg)}</div>` : ''}</div>
+          <div class="app-field" style="max-width:420px;"><input type="search" id="attachSearch" placeholder="Rechercher par numéro, établissement, e-mail…" value="${esc(attachTerm)}" /></div>
+          <div class="app-table-wrap" style="margin-top:12px;">
+            <table class="app-table">
+              <thead><tr><th>Réf</th><th>Établissement / structure</th><th>E-mail</th><th>Client actuel</th><th></th></tr></thead>
+              <tbody>
+                ${attachResults.map((d) => `
+                  <tr>
+                    <td>${esc(d.numero)}</td>
+                    <td>${esc(d.etablissement || d.structure_nom || '—')}</td>
+                    <td>${esc(d.contact_email || '—')}</td>
+                    <td>${d.organization_id ? 'Un autre client' : '—'}</td>
+                    <td><button class="app-btn app-btn-sm" data-attach="${d.id}">Rattacher ici</button></td>
+                  </tr>`).join('') || `<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--texte-clair);">${attachTerm ? 'Aucun résultat.' : 'Tapez pour rechercher un dossier.'}</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('renameForm').addEventListener('submit', onRename);
+      const attachSearch = document.getElementById('attachSearch');
+      attachSearch.addEventListener('input', (e) => { attachTerm = e.target.value; onAttachSearch(); });
+      root.querySelectorAll('[data-attach]').forEach((btn) => {
+        btn.addEventListener('click', () => onAttach(btn.dataset.attach));
+      });
+    }
+
+    let attachDebounce;
+    function onAttachSearch() {
+      clearTimeout(attachDebounce);
+      attachDebounce = setTimeout(async () => {
+        attachResults = await searchAttachableDossiers(supabase, attachTerm, organizationId);
+        render();
+        document.getElementById('attachSearch').focus();
+      }, 250);
+    }
+
+    async function onAttach(dossierId) {
+      const d = attachResults.find((r) => r.id === dossierId);
+      if (!d) return;
+      const confirmMsg = d.organization_id
+        ? `Ce dossier appartient déjà à un autre client. Le rattacher à "${organization.nom}" à la place ?`
+        : `Rattacher le dossier ${d.numero} à "${organization.nom}" ?`;
+      if (!window.confirm(confirmMsg)) return;
+      try {
+        await attachDossierToOrganization(supabase, dossierId, organizationId, session.user.id);
+        attachMsg = `Dossier ${d.numero} rattaché à ${organization.nom}.`;
+        attachTerm = ''; attachResults = [];
+        await loadAll();
+      } catch (error) {
+        attachMsg = 'Échec : ' + error.message;
+        render();
+      }
+    }
+
+    async function onRename(e) {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const nom = (fd.get('nom') || '').trim();
+      if (!nom) return;
+      const { error } = await supabase.from('organizations').update({ nom }).eq('id', organizationId);
+      const msgEl = document.getElementById('msgRename');
+      if (error) { msgEl.innerHTML = `<div class="app-msg app-msg-error">${esc(error.message)}</div>`; return; }
+      msgEl.innerHTML = `<div class="app-msg app-msg-success">Renommé.</div>`;
+      await loadAll();
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await supabase.auth.signOut();
+      window.location.href = 'index.html';
+    });
+
+    init();
+  </script>
+</body>
+</html>

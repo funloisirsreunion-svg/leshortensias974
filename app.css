@@ -104,8 +104,49 @@ table.app-table a.row-link { color: var(--vert-fonce); font-weight: 700; }
 .app-tab { padding: 8px 18px; border-radius: var(--radius-sm) var(--radius-sm) 0 0; background: var(--beige); color: var(--texte-clair); cursor: pointer; font-weight: 700; font-size: .85rem; }
 .app-tab.active { background: var(--vert-fonce); color: var(--blanc); }
 
+/* ===== Accordéon "Mes séjours" (espace client, multi-dossiers) ===== */
+
+.stay-accordion {
+  border: 1px solid var(--beige-fonce); border-radius: var(--radius-sm);
+  margin-bottom: 14px; overflow: hidden;
+}
+.stay-accordion:last-child { margin-bottom: 0; }
+.stay-accordion[open] { border-color: var(--vert-moyen); }
+
+.stay-summary {
+  list-style: none; cursor: pointer; padding: 16px 18px;
+  display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+}
+.stay-summary::-webkit-details-marker { display: none; }
+.stay-summary:hover { background: var(--gris-clair); }
+
+.stay-summary-main { flex: 1; min-width: 200px; }
+.stay-summary-title { font-family: 'Playfair Display', serif; font-size: 1.08rem; color: var(--vert-fonce); margin-bottom: 4px; }
+.stay-summary-meta { font-size: .82rem; color: var(--texte-clair); margin-bottom: 8px; }
+.stay-summary-indicators { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.stay-status-badge { white-space: nowrap; }
+.stay-chevron { display: inline-block; transition: transform .2s ease; color: var(--texte-clair); font-size: .9rem; }
+.stay-accordion[open] > .stay-summary .stay-chevron,
+.past-stays-toggle[open] > .past-stays-summary .stay-chevron { transform: rotate(180deg); }
+
+.stay-body { padding: 4px 18px 18px; }
+.stay-body .app-card { box-shadow: none; border: 1px solid var(--beige-fonce); }
+.stay-body .app-card:first-child { margin-top: 10px; }
+
+.past-stays-toggle { padding: 0; }
+.past-stays-summary {
+  list-style: none; cursor: pointer; padding: 18px; margin: 0;
+  font-weight: 700; color: var(--vert-fonce); display: flex; align-items: center; gap: 8px;
+}
+.past-stays-summary::-webkit-details-marker { display: none; }
+.past-stays-toggle > div { padding: 0 18px 18px; }
+
 @media (max-width: 720px) {
   .app-grid-2, .app-grid-3 { grid-template-columns: 1fr; }
   .app-container { padding: 18px 14px 50px; }
   .app-card { padding: 18px; }
+  .stay-summary { padding: 14px; }
+  .stay-body { padding: 4px 14px 14px; }
+  .stay-summary-indicators { flex-direction: column; align-items: flex-start; gap: 4px; }
 }

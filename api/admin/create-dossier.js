@@ -2,6 +2,7 @@ import { getSupabaseAdmin } from '../../lib/supabaseAdmin.js';
 import { requireAdmin } from '../../lib/requireAdmin.js';
 import { assignClsNumber } from '../../lib/clsDossierNumber.js';
 import { assignGrpNumber } from '../../lib/grpDossierNumber.js';
+import { findOrCreateOrganization } from '../../lib/organizations.js';
 
 const PROGRAMMES = new Set(['nature', 'volcan']);
 const DUREES = new Set([3, 4, 5]);
@@ -84,9 +85,19 @@ export default async function handler(req, res) {
   try {
     const numero = clientType === 'school' ? await assignClsNumber() : await assignGrpNumber();
 
+    // §1/§2/§14 : un dossier n'est jamais orphelin de client — soit il rejoint
+    // l'organisation explicitement choisie par l'admin (détection côté UI dans
+    // nouveau-dossier.html), soit une correspondance certaine par e-mail est
+    // recherchée, soit une nouvelle organisation est créée.
+    const { organizationId } = await findOrCreateOrganization(supabaseAdmin, {
+      email: payload.contact_email,
+      nom: payload.etablissement,
+      organizationId: typeof body.organizationId === 'string' && body.organizationId ? body.organizationId : undefined,
+    });
+
     const { data, error } = await supabaseAdmin
       .from('dossiers')
-      .insert({ numero, ...payload })
+      .insert({ numero, organization_id: organizationId, ...payload })
       .select()
       .single();
 
