@@ -10,11 +10,6 @@
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../style.css" />
   <link rel="stylesheet" href="../app.css" />
-  <style>
-    .sejour-card { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px; border:1px solid var(--beige-fonce); border-radius:var(--radius-sm); margin-bottom:14px; flex-wrap:wrap; }
-    .sejour-card:hover { border-color:var(--vert-moyen); }
-    .sejour-title { font-family:'Playfair Display',serif; font-size:1.1rem; color:var(--vert-fonce); margin-bottom:4px; }
-  </style>
 </head>
 <body class="app-body">
 
@@ -36,10 +31,16 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
-    import { STATUTS, labelOf, formatDateFr } from '../lib/appConstants.js';
+    import { mountDossierPanel } from './dossierPanel.js';
+    import {
+      STATUTS, labelOf, formatDateFr, formatMontant, docCompleteness, resteAPayer,
+      dossierActionBadge, categorizeSejour, sejourLabel, sejourDatesLabel,
+    } from '../lib/appConstants.js';
 
     const root = document.getElementById('appRoot');
     let supabase;
+    let sejours = []; // [{ dossier, documents }]
+    const mountedPanels = new Map(); // dossierId -> { refresh }
 
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -65,6 +66,161 @@
       await loadNotifications();
     }
 
+    // ==========================================================
+    // Chargement des séjours + badges (documents/finances) en 2 requêtes
+    // groupées (pas une par dossier), pour que la liste repliée affiche déjà
+    // les informations essentielles sans ouvrir chaque dossier (§11).
+    // ==========================================================
+    async function loadSejours() {
+      const { data: acces, error } = await supabase
+        .from('dossier_acces')
+        .select('*, dossiers(*)')
+        .neq('statut', 'desactive')
+        .order('created_at', { ascending: false });
+
+      if (error) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(error.message)}</div>`; return; }
+
+      const dossiers = (acces || []).map(a => a.dossiers).filter(Boolean);
+      if (dossiers.length === 0) {
+        root.innerHTML = `<div class="app-msg app-msg-info">Aucun séjour n'est encore associé à votre compte. Contactez Fun Loisirs Réunion.</div>`;
+        return;
+      }
+
+      const ids = dossiers.map(d => d.id);
+      const { data: allDocs } = await supabase.from('documents').select('*').in('dossier_id', ids);
+      const docsByDossier = {};
+      (allDocs || []).forEach(doc => {
+        (docsByDossier[doc.dossier_id] ||= []).push(doc);
+      });
+
+      sejours = dossiers.map(d => ({ dossier: d, documents: docsByDossier[d.id] || [] }));
+      renderSejours();
+    }
+
+    function accordionCard(item) {
+      const { dossier, documents } = item;
+      const badge = dossierActionBadge(dossier, documents);
+      const c = docCompleteness(documents);
+      const reste = resteAPayer(dossier);
+      return `
+        <div class="app-accordion-item" data-dossier-id="${dossier.id}">
+          <div class="app-accordion-header" data-toggle="${dossier.id}">
+            <div class="app-accordion-main">
+              <div class="app-accordion-title">${esc(sejourLabel(dossier))}</div>
+              <div class="app-accordion-dates">${esc(sejourDatesLabel(dossier))} · Dossier ${esc(dossier.numero)}</div>
+            </div>
+            <div class="app-accordion-stats">
+              <span class="app-badge app-badge-${badge.level}">${badge.dot} ${esc(badge.label)}</span>
+              ${c.total ? `<span><span class="app-accordion-stat-label">Documents :</span> ${c.valides}/${c.total}</span>` : ''}
+              <span><span class="app-accordion-stat-label">Reste à payer :</span> ${formatMontant(reste)}</span>
+            </div>
+            <span class="app-accordion-chevron">▼</span>
+          </div>
+          <div class="app-accordion-body" id="body-${dossier.id}"></div>
+        </div>`;
+    }
+
+    function renderSejours() {
+      const groups = { a_venir: [], en_cours: [], passe: [] };
+      sejours.forEach(item => { groups[categorizeSejour(item.dossier)].push(item); });
+
+      // Tri : les plus proches en premier pour à venir/en cours, les plus récents
+      // en premier pour les passés.
+      const byDateAsc = (a, b) => (a.dossier.date_confirmee_debut || a.dossier.date_proposee || '9999') > (b.dossier.date_confirmee_debut || b.dossier.date_proposee || '9999') ? 1 : -1;
+      const byDateDesc = (a, b) => (a.dossier.date_confirmee_debut || a.dossier.date_proposee || '0000') < (b.dossier.date_confirmee_debut || b.dossier.date_proposee || '0000') ? 1 : -1;
+      groups.a_venir.sort(byDateAsc);
+      groups.en_cours.sort(byDateAsc);
+      groups.passe.sort(byDateDesc);
+
+      // Passés, regroupés par année (repliés par défaut, cf. §8).
+      const passesByYear = {};
+      groups.passe.forEach(item => {
+        const d = item.dossier;
+        const year = (d.date_confirmee_debut || d.date_proposee || d.created_at || '').slice(0, 4) || '—';
+        (passesByYear[year] ||= []).push(item);
+      });
+      const years = Object.keys(passesByYear).sort((a, b) => b.localeCompare(a));
+
+      root.innerHTML = `
+        <div class="app-card" style="background:transparent;box-shadow:none;padding:0;">
+          <h2 style="margin-bottom:18px;">Mes séjours</h2>
+
+          ${groups.a_venir.length ? `
+          <div class="app-sejour-group-title">À venir <span class="app-sejour-group-count">(${groups.a_venir.length})</span></div>
+          ${groups.a_venir.map(accordionCard).join('')}` : ''}
+
+          ${groups.en_cours.length ? `
+          <div class="app-sejour-group-title">En cours <span class="app-sejour-group-count">(${groups.en_cours.length})</span></div>
+          ${groups.en_cours.map(accordionCard).join('')}` : ''}
+
+          ${!groups.a_venir.length && !groups.en_cours.length ? `<div class="app-msg app-msg-info">Aucun séjour à venir pour le moment.</div>` : ''}
+
+          ${groups.passe.length ? `
+          <button type="button" class="app-sejours-passes-toggle" id="togglePasses">
+            <span>Séjours passés (${groups.passe.length})</span>
+            <span id="togglePassesChevron">▼</span>
+          </button>
+          <div class="app-sejours-passes-body" id="passesBody">
+            ${years.map(year => `
+              <div class="app-sejour-group-title">${year}</div>
+              ${passesByYear[year].map(accordionCard).join('')}
+            `).join('')}
+          </div>` : ''}
+        </div>
+      `;
+
+      root.querySelectorAll('[data-toggle]').forEach(header => {
+        header.addEventListener('click', () => toggleAccordion(header.dataset.toggle));
+      });
+      const togglePasses = document.getElementById('togglePasses');
+      if (togglePasses) {
+        togglePasses.addEventListener('click', () => {
+          const body = document.getElementById('passesBody');
+          const open = body.classList.toggle('open');
+          document.getElementById('togglePassesChevron').textContent = open ? '▲' : '▼';
+        });
+      }
+    }
+
+    async function toggleAccordion(dossierId) {
+      const item = root.querySelector(`.app-accordion-item[data-dossier-id="${dossierId}"]`);
+      if (!item) return;
+      const isOpen = item.classList.toggle('open');
+      if (isOpen && !mountedPanels.has(dossierId)) {
+        const body = document.getElementById(`body-${dossierId}`);
+        const panel = await mountDossierPanel({
+          container: body,
+          supabase,
+          dossierId,
+          onChange: (dossier, documents) => updateAccordionHeader(dossierId, dossier, documents),
+        });
+        mountedPanels.set(dossierId, panel);
+      }
+    }
+
+    // Met à jour uniquement les badges de l'en-tête (documents/reste à payer/
+    // action requise) d'UN séjour après une action dans son panneau déplié —
+    // ne touche jamais le DOM des autres accordéons, ouverts ou non (§7).
+    function updateAccordionHeader(dossierId, dossier, documents) {
+      const idx = sejours.findIndex(s => s.dossier.id === dossierId);
+      if (idx >= 0) sejours[idx] = { dossier, documents };
+      const item = root.querySelector(`.app-accordion-item[data-dossier-id="${dossierId}"]`);
+      const statsEl = item?.querySelector('.app-accordion-stats');
+      if (!statsEl) return;
+      const badge = dossierActionBadge(dossier, documents);
+      const c = docCompleteness(documents);
+      const reste = resteAPayer(dossier);
+      statsEl.innerHTML = `
+        <span class="app-badge app-badge-${badge.level}">${badge.dot} ${esc(badge.label)}</span>
+        ${c.total ? `<span><span class="app-accordion-stat-label">Documents :</span> ${c.valides}/${c.total}</span>` : ''}
+        <span><span class="app-accordion-stat-label">Reste à payer :</span> ${formatMontant(reste)}</span>
+      `;
+    }
+
+    // ==========================================================
+    // Notifications — toujours préfixées par le séjour concerné (§10),
+    // jamais un message générique quand plusieurs dossiers existent.
+    // ==========================================================
     let notifications = [];
 
     async function loadNotifications() {
@@ -72,6 +228,15 @@
       notifications = data || [];
       const unread = notifications.filter(n => !n.lu).length;
       document.getElementById('notifBadge').textContent = unread ? `(${unread})` : '';
+    }
+
+    function notifLabel(n) {
+      if (!n.dossier_id) return esc(n.message);
+      const item = sejours.find(s => s.dossier.id === n.dossier_id);
+      const label = item ? sejourLabel(item.dossier) : null;
+      const dates = item ? sejourDatesLabel(item.dossier) : null;
+      if (!label) return esc(n.message);
+      return `<strong>${esc(label)}${dates ? ' (' + esc(dates) + ')' : ''} :</strong> ${esc(n.message)}`;
     }
 
     function renderNotifPanel() {
@@ -85,7 +250,7 @@
           ${notifications.map(n => `
             <li style="cursor:pointer;${n.lu ? 'opacity:.55;' : ''}" data-notif-id="${n.id}" data-notif-dossier="${n.dossier_id || ''}">
               <span class="app-todo-dot" style="background:${n.lu ? 'var(--beige-fonce)' : 'var(--or)'};"></span>
-              ${esc(n.message)} <span style="color:var(--texte-clair);font-size:.78rem;">— ${new Date(n.created_at).toLocaleString('fr-FR')}</span>
+              ${notifLabel(n)} <span style="color:var(--texte-clair);font-size:.78rem;">— ${new Date(n.created_at).toLocaleString('fr-FR')}</span>
             </li>`).join('') || '<li>Aucune notification.</li>'}
         </ul>
       `;
@@ -97,8 +262,23 @@
       panel.querySelectorAll('[data-notif-id]').forEach(li => {
         li.addEventListener('click', async () => {
           await supabase.from('notifications').update({ lu: true }).eq('id', li.dataset.notifId);
-          if (li.dataset.notifDossier) window.location.href = `dossier.html?id=${li.dataset.notifDossier}`;
-          else { await loadNotifications(); renderNotifPanel(); }
+          const dossierId = li.dataset.notifDossier;
+          if (dossierId) {
+            document.getElementById('notifPanel').style.display = 'none';
+            await loadNotifications();
+            const item = root.querySelector(`.app-accordion-item[data-dossier-id="${dossierId}"]`);
+            const passesBody = item?.closest('.app-sejours-passes-body');
+            if (passesBody && !passesBody.classList.contains('open')) {
+              passesBody.classList.add('open');
+              const chevron = document.getElementById('togglePassesChevron');
+              if (chevron) chevron.textContent = '▲';
+            }
+            if (item && !item.classList.contains('open')) await toggleAccordion(dossierId);
+            item?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          } else {
+            await loadNotifications();
+            renderNotifPanel();
+          }
         });
       });
     }
@@ -110,45 +290,6 @@
       renderNotifPanel();
       panel.style.display = 'block';
     });
-
-    async function loadSejours() {
-      const { data: acces, error } = await supabase
-        .from('dossier_acces')
-        .select('*, dossiers(*)')
-        .neq('statut', 'desactive')
-        .order('created_at', { ascending: false });
-
-      if (error) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(error.message)}</div>`; return; }
-
-      if (!acces || acces.length === 0) {
-        root.innerHTML = `<div class="app-msg app-msg-info">Aucun séjour n'est encore associé à votre compte. Contactez Fun Loisirs Réunion.</div>`;
-        return;
-      }
-
-      root.innerHTML = `
-        <div class="app-card">
-          <h2>Mes séjours</h2>
-          ${acces.map(a => {
-            const d = a.dossiers;
-            if (!d) return '';
-            const dateLabel = d.date_confirmee_debut
-              ? formatDateFr(d.date_confirmee_debut)
-              : (d.date_proposee ? formatDateFr(d.date_proposee) + ' (proposée)' : 'Dates à venir');
-            const programmeLabel = d.programme === 'volcan' ? 'Classe Volcan' : d.programme === 'nature' ? 'Classe Nature' : 'Séjour';
-            return `
-            <a href="dossier.html?id=${d.id}" style="text-decoration:none;color:inherit;">
-              <div class="sejour-card">
-                <div>
-                  <div class="sejour-title">${programmeLabel} — ${esc(d.etablissement)}</div>
-                  <div style="font-size:.85rem;color:var(--texte-clair);">Dossier ${esc(d.numero)} · ${dateLabel}</div>
-                </div>
-                <span class="app-badge app-badge-gray">${labelOf(STATUTS, d.statut)}</span>
-              </div>
-            </a>`;
-          }).join('')}
-        </div>
-      `;
-    }
 
     document.getElementById('logoutBtn').addEventListener('click', async () => {
       await supabase.auth.signOut();

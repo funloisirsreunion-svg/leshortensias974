@@ -104,8 +104,53 @@ table.app-table a.row-link { color: var(--vert-fonce); font-weight: 700; }
 .app-tab { padding: 8px 18px; border-radius: var(--radius-sm) var(--radius-sm) 0 0; background: var(--beige); color: var(--texte-clair); cursor: pointer; font-weight: 700; font-size: .85rem; }
 .app-tab.active { background: var(--vert-fonce); color: var(--blanc); }
 
+/* ===== Accordéon "Mes séjours" (Espace Client) ===== */
+
+.app-sejour-group-title {
+  font-family: 'Playfair Display', serif; color: var(--vert-fonce); font-size: 1.05rem;
+  margin: 26px 0 12px; display: flex; align-items: center; gap: 8px;
+}
+.app-sejour-group-title:first-child { margin-top: 0; }
+.app-sejour-group-count { font-size: .8rem; font-weight: 400; color: var(--texte-clair); }
+
+.app-accordion-item {
+  background: var(--blanc); border-radius: var(--radius); box-shadow: var(--ombre);
+  margin-bottom: 14px; overflow: hidden;
+}
+.app-accordion-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 18px 20px; cursor: pointer; flex-wrap: wrap; user-select: none;
+}
+.app-accordion-header:hover { background: var(--gris-clair); }
+.app-accordion-main { flex: 1; min-width: 220px; }
+.app-accordion-title { font-family: 'Playfair Display', serif; font-size: 1.05rem; color: var(--vert-fonce); margin-bottom: 4px; }
+.app-accordion-dates { font-size: .85rem; color: var(--texte-clair); }
+.app-accordion-stats { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; font-size: .82rem; color: var(--texte); }
+.app-accordion-stat-label { color: var(--texte-clair); }
+.app-accordion-chevron { font-size: 1rem; color: var(--texte-clair); transition: transform .2s; flex-shrink: 0; }
+.app-accordion-item.open .app-accordion-chevron { transform: rotate(180deg); }
+.app-accordion-body { display: none; border-top: 1px solid var(--beige-fonce); padding: 6px 20px 20px; }
+.app-accordion-item.open .app-accordion-body { display: block; }
+.app-panel-section { padding: 18px 0; border-bottom: 1px solid var(--beige-fonce); }
+.app-panel-section:last-child { border-bottom: none; }
+.app-panel-section h3 { color: var(--vert-fonce); margin-bottom: 12px; font-size: 1.05rem; }
+.app-panel-section h4 { color: var(--brun); margin: 14px 0 8px; font-size: .95rem; }
+
+.app-sejours-passes-toggle {
+  background: transparent; border: 2px dashed var(--beige-fonce); color: var(--texte-clair);
+  padding: 12px 18px; border-radius: var(--radius-sm); width: 100%; text-align: left;
+  cursor: pointer; font-family: 'Lato', sans-serif; font-weight: 700; font-size: .9rem;
+  display: flex; justify-content: space-between; align-items: center;
+}
+.app-sejours-passes-toggle:hover { border-color: var(--vert-moyen); color: var(--vert-fonce); }
+.app-sejours-passes-body { display: none; margin-top: 14px; }
+.app-sejours-passes-body.open { display: block; }
+
 @media (max-width: 720px) {
   .app-grid-2, .app-grid-3 { grid-template-columns: 1fr; }
   .app-container { padding: 18px 14px 50px; }
   .app-card { padding: 18px; }
+  .app-accordion-header { padding: 14px 16px; }
+  .app-accordion-body { padding: 4px 16px 16px; }
+  .app-accordion-stats { gap: 10px 16px; width: 100%; }
 }
