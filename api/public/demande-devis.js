@@ -2,6 +2,7 @@ import { Resend } from 'resend';
 import { getSupabaseAdmin } from '../../lib/supabaseAdmin.js';
 import { assignClsNumber } from '../../lib/clsDossierNumber.js';
 import { buildDemandeDevisSubject, buildDemandeDevisHtml } from '../../lib/demandeDevisEmail.js';
+import { findOrCreateOrganization } from '../../lib/organizations.js';
 
 // Endpoint public (aucune authentification) : reçoit une demande de devis Classe
 // Découverte depuis inscription-classe.html. Toujours enregistrer la demande AVANT
@@ -72,10 +73,15 @@ export default async function handler(req, res) {
   let dossier;
   try {
     const numero = await assignClsNumber();
+    // Une même école peut soumettre plusieurs demandes au fil des années : elles
+    // doivent toutes rejoindre le même espace client (§2/§3), jamais créer de
+    // nouveaux comptes ni de nouvelles identités clients pour un e-mail déjà connu.
+    const { organizationId } = await findOrCreateOrganization(supabaseAdmin, { email: contactEmail, nom: etablissement });
     const { data, error } = await supabaseAdmin
       .from('dossiers')
       .insert({
         numero,
+        organization_id: organizationId,
         source: 'public',
         etablissement,
         commune,

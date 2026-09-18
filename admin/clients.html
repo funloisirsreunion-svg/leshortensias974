@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clients — Administration | Les Hortensias</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../app.css" />
+</head>
+<body class="app-body">
+  <div class="app-topbar">
+    <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
+    <div class="app-user">
+      <a href="dashboard.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Tableau de bord</a>
+      <button class="app-logout" id="logoutBtn">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="app-container" id="appRoot">
+    <div class="app-loading">Chargement des clients…</div>
+  </div>
+
+  <script type="module">
+    import { getSupabaseClient } from '../lib/supabaseClient.js';
+
+    const root = document.getElementById('appRoot');
+    let supabase, organizations = [], dossiersByOrg = {}, accesByOrg = {}, searchTerm = '';
+
+    function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    async function init() {
+      try { supabase = await getSupabaseClient(); }
+      catch (e) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(e.message)}</div>`; return; }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { window.location.href = 'index.html'; return; }
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+      if (!profile || profile.role !== 'admin') { await supabase.auth.signOut(); window.location.href = 'index.html'; return; }
+
+      await loadAll();
+    }
+
+    async function loadAll() {
+      const [{ data: orgs, error: oErr }, { data: dossiers }, { data: acces }] = await Promise.all([
+        supabase.from('organizations').select('*').is('archived_at', null).order('nom'),
+        supabase.from('dossiers').select('id, organization_id, numero, client_type, statut, archived_at').in('client_type', ['school', 'group']),
+        supabase.from('dossier_acces').select('dossier_id, statut'),
+      ]);
+      if (oErr) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(oErr.message)}</div>`; return; }
+      organizations = orgs || [];
+
+      dossiersByOrg = {};
+      (dossiers || []).forEach((d) => {
+        if (!d.organization_id) return;
+        (dossiersByOrg[d.organization_id] = dossiersByOrg[d.organization_id] || []).push(d);
+      });
+
+      const dossierToOrg = {};
+      (dossiers || []).forEach((d) => { dossierToOrg[d.id] = d.organization_id; });
+      accesByOrg = {};
+      (acces || []).forEach((a) => {
+        const orgId = dossierToOrg[a.dossier_id];
+        if (!orgId) return;
+        (accesByOrg[orgId] = accesByOrg[orgId] || []).push(a);
+      });
+
+      render();
+    }
+
+    function matchesSearch(o) {
+      if (!searchTerm) return true;
+      const hay = `${o.nom || ''} ${o.contact_email || ''}`.toLowerCase();
+      return hay.includes(searchTerm.toLowerCase());
+    }
+
+    function accessBadge(orgId) {
+      const rows = accesByOrg[orgId] || [];
+      if (rows.some((a) => a.statut === 'compte_active')) return '<span class="app-badge app-badge-green">🟢 Actif</span>';
+      if (rows.some((a) => a.statut === 'invitation_envoyee')) return '<span class="app-badge app-badge-orange">🟠 Invitation envoyée</span>';
+      return '<span class="app-badge app-badge-gray">Aucun accès</span>';
+    }
+
+    function render() {
+      const list = organizations.filter(matchesSearch);
+      root.innerHTML = `
+        <div class="app-card">
+          <h2>🏢 Clients (${organizations.length})</h2>
+          <p style="font-size:.85rem;color:var(--texte-clair);margin-bottom:14px;">
+            Un client = un établissement/une structure, quel que soit le nombre de dossiers/séjours au fil des années. Un compte d'accès n'est jamais dupliqué.
+          </p>
+          <div class="app-filters">
+            <input type="search" id="searchInput" placeholder="Rechercher un client, un e-mail…" value="${esc(searchTerm)}" style="flex:1;min-width:220px;" />
+          </div>
+          <div class="app-table-wrap">
+            <table class="app-table">
+              <thead><tr><th>Client</th><th>E-mail de contact</th><th>Dossiers</th><th>Accès client</th><th></th></tr></thead>
+              <tbody>
+                ${list.map((o) => {
+                  const dossiers = dossiersByOrg[o.id] || [];
+                  return `
+                  <tr>
+                    <td><a class="row-link" href="client.html?id=${o.id}">${esc(o.nom)}</a></td>
+                    <td>${esc(o.contact_email || '—')}</td>
+                    <td>${dossiers.length}</td>
+                    <td>${accessBadge(o.id)}</td>
+                    <td><a class="app-btn app-btn-sm app-btn-outline" href="client.html?id=${o.id}">Ouvrir</a></td>
+                  </tr>`;
+                }).join('') || `<tr><td colspan="5" style="text-align:center;padding:30px;">Aucun client ne correspond.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+      document.getElementById('searchInput').addEventListener('input', (e) => { searchTerm = e.target.value; render(); });
+    }
+
+    document.getElementById('logoutBtn').addEventListener('click', async () => {
+      await supabase.auth.signOut();
+      window.location.href = 'index.html';
+    });
+
+    init();
+  </script>
+</body>
+</html>

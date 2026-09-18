@@ -92,6 +92,8 @@
         Une colonie fonctionne différemment : on crée d'abord un <strong>séjour</strong> (ex. « Colonie Octobre 2026 »), puis les familles s'inscrivent dedans. Cliquez sur la carte ci-dessus pour créer un séjour.
       </p>
 
+      <div id="clientBanner"></div>
+
       <form id="form">
         <!-- ── Classe de découverte ── -->
         <div data-section="school">
@@ -175,13 +177,63 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
+    import { getOrganizationDetail } from '../lib/organizationsClient.js';
 
     const msgBox = document.getElementById('msgBox');
+    const clientBanner = document.getElementById('clientBanner');
     const form = document.getElementById('form');
     const submitBtn = document.getElementById('submitBtn');
     let supabase;
+    let detectedOrg = null; // { organization, dossiers } le cas échéant
+    let attachToExisting = true;
 
+    function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
     function showMsg(text, type = 'error') { msgBox.innerHTML = `<div class="app-msg app-msg-${type}">${text}</div>`; }
+
+    // §2/§14 : dès que l'admin renseigne un e-mail déjà connu, on le prévient
+    // AVANT la création — jamais un deuxième compte, jamais un nouveau mot de
+    // passe pour un client qui a déjà un espace actif.
+    function isValidEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v || ''); }
+
+    function renderClientBanner() {
+      if (!detectedOrg) { clientBanner.innerHTML = ''; return; }
+      const { organization, dossiers } = detectedOrg;
+      clientBanner.innerHTML = `
+        <div class="app-msg app-msg-info">
+          <strong>Un espace client existe déjà pour cette adresse :</strong> ${esc(organization.nom)}
+          (${dossiers.length} dossier${dossiers.length > 1 ? 's' : ''} déjà rattaché${dossiers.length > 1 ? 's' : ''}).
+          <div style="margin-top:10px;display:flex;gap:16px;flex-wrap:wrap;">
+            <label style="font-weight:400;display:flex;align-items:center;gap:6px;"><input type="radio" name="attachChoice" value="attach" ${attachToExisting ? 'checked' : ''} /> Rattacher ce nouveau dossier à ${esc(organization.nom)}</label>
+            <label style="font-weight:400;display:flex;align-items:center;gap:6px;"><input type="radio" name="attachChoice" value="new" ${!attachToExisting ? 'checked' : ''} /> Créer un client séparé</label>
+          </div>
+        </div>`;
+      clientBanner.querySelectorAll('input[name="attachChoice"]').forEach((r) => {
+        r.addEventListener('change', () => { attachToExisting = r.value === 'attach'; });
+      });
+    }
+
+    async function checkExistingClient(email) {
+      if (!isValidEmail(email)) { detectedOrg = null; renderClientBanner(); return; }
+      try {
+        const { data: rows, error } = await supabase
+          .from('dossiers')
+          .select('organization_id')
+          .ilike('contact_email', email.trim())
+          .not('organization_id', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (error) throw error;
+        if (!rows || !rows.length) { detectedOrg = null; renderClientBanner(); return; }
+        const { organization, dossiers } = await getOrganizationDetail(supabase, rows[0].organization_id);
+        detectedOrg = { organization, dossiers };
+        attachToExisting = true;
+        renderClientBanner();
+      } catch { /* détection non bloquante */ }
+    }
+
+    document.querySelectorAll('input[name="contact_email"]').forEach((input) => {
+      input.addEventListener('blur', () => checkExistingClient(input.value));
+    });
 
     function currentType() {
       return document.querySelector('input[name="clientType"]:checked').value;
@@ -214,6 +266,7 @@
         section.querySelectorAll('input, select, textarea').forEach(el => {
           if (el.name) body[el.name] = el.value;
         });
+        if (detectedOrg && attachToExisting) body.organizationId = detectedOrg.organization.id;
         const res = await fetch('/api/admin/create-dossier', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
