@@ -38,7 +38,7 @@ export function stayDates(dossier) {
 }
 
 export function stayCategory(dossier) {
-  if (['annule', 'refusee', 'cloture'].includes(dossier.statut)) return 'passes';
+  if (['annule', 'refusee', 'archivee', 'cloture', 'sejour_termine'].includes(dossier.statut)) return 'passes';
   const { debut, fin } = stayDates(dossier);
   if (!debut) return 'a_venir';
   const today = new Date().toISOString().slice(0, 10);

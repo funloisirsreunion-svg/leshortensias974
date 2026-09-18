@@ -105,8 +105,13 @@ end;
 $$;
 
 -- ==========================================================
--- Documents (0011) : dépôt client (audience admin) + ajout/validation/refus
--- (audience client)
+-- Documents (0011, adapté colonies par 0016) : dépôt client (audience admin)
+-- + ajout/validation/refus (audience client). On reprend ici EXACTEMENT la
+-- structure colonie-aware de 0016 (target_dossier / target_colony, XOR
+-- dossier_id/colony_registration_id, log_journal/notify à 4 arguments) — la
+-- seule différence est l'utilisation de dossier_label() dans les messages
+-- côté dossier école/groupe. Les colonies n'ont pas de compte client
+-- (cf. commentaire de 0016) : leurs messages restent inchangés.
 -- ==========================================================
 
 create or replace function public.on_document_change()
@@ -116,19 +121,27 @@ security definer set search_path = public
 as $$
 declare
   is_admin boolean;
+  target_dossier uuid;
+  target_colony uuid;
 begin
   is_admin := public.current_role_is_admin();
+  target_dossier := new.dossier_id;
+  target_colony := new.colony_registration_id;
 
   if tg_op = 'INSERT' then
     if new.storage_path is not null then
       if is_admin then
-        perform public.log_journal(new.dossier_id, 'document_ajoute', 'Ajouté par l''admin : ' || new.type::text);
-        if new.client_visible then
-          perform public.notify_client(new.dossier_id, 'document_ajoute', public.dossier_label(new.dossier_id) || ' : nouveau document disponible (' || new.type::text || ')');
+        perform public.log_journal(target_dossier, 'document_ajoute', 'Ajouté par l''admin : ' || new.type::text, target_colony);
+        if new.client_visible and target_dossier is not null then
+          perform public.notify_client(target_dossier, 'document_ajoute', public.dossier_label(target_dossier) || ' : nouveau document disponible (' || new.type::text || ')');
         end if;
       else
-        perform public.log_journal(new.dossier_id, 'document_depose', 'Déposé par le client : ' || new.type::text);
-        perform public.notify('document_depose', new.dossier_id, public.dossier_label(new.dossier_id) || ' : document déposé (' || new.type::text || ')');
+        perform public.log_journal(target_dossier, 'document_depose', 'Déposé par le client : ' || new.type::text, target_colony);
+        if target_dossier is not null then
+          perform public.notify('document_depose', target_dossier, public.dossier_label(target_dossier) || ' : document déposé (' || new.type::text || ')');
+        else
+          perform public.notify('document_depose', target_dossier, 'Document déposé : ' || new.type::text, target_colony);
+        end if;
       end if;
     end if;
     return new;
@@ -137,33 +150,41 @@ begin
   -- UPDATE : nouveau fichier (ajout ou remplacement)
   if new.storage_path is distinct from old.storage_path and new.storage_path is not null then
     if is_admin then
-      perform public.log_journal(new.dossier_id, case when old.storage_path is null then 'document_ajoute' else 'document_remplace' end, 'Par l''admin : ' || new.type::text);
-      if new.client_visible then
-        perform public.notify_client(new.dossier_id, 'document_ajoute', public.dossier_label(new.dossier_id) || ' : nouveau document disponible (' || new.type::text || ')');
+      perform public.log_journal(target_dossier, case when old.storage_path is null then 'document_ajoute' else 'document_remplace' end, 'Par l''admin : ' || new.type::text, target_colony);
+      if new.client_visible and target_dossier is not null then
+        perform public.notify_client(target_dossier, 'document_ajoute', public.dossier_label(target_dossier) || ' : nouveau document disponible (' || new.type::text || ')');
       end if;
     else
-      perform public.log_journal(new.dossier_id, case when old.storage_path is null then 'document_depose' else 'document_remplace' end, 'Par le client : ' || new.type::text);
-      perform public.notify('document_depose', new.dossier_id, public.dossier_label(new.dossier_id) || ' : document déposé (' || new.type::text || ')');
+      perform public.log_journal(target_dossier, case when old.storage_path is null then 'document_depose' else 'document_remplace' end, 'Par le client : ' || new.type::text, target_colony);
+      if target_dossier is not null then
+        perform public.notify('document_depose', target_dossier, public.dossier_label(target_dossier) || ' : document déposé (' || new.type::text || ')');
+      else
+        perform public.notify('document_depose', target_dossier, 'Document déposé : ' || new.type::text, target_colony);
+      end if;
     end if;
   end if;
 
   -- UPDATE : retrait par le client (redevient "à fournir")
   if new.storage_path is null and old.storage_path is not null and not is_admin then
-    perform public.log_journal(new.dossier_id, 'document_supprime', 'Retiré par le client : ' || new.type::text);
+    perform public.log_journal(target_dossier, 'document_supprime', 'Retiré par le client : ' || new.type::text, target_colony);
   end if;
 
   -- UPDATE : changement de statut
   if new.statut is distinct from old.statut then
     if new.statut = 'valide' then
-      perform public.log_journal(new.dossier_id, 'document_valide', new.type::text);
-      perform public.notify_client(new.dossier_id, 'document_valide', public.dossier_label(new.dossier_id) || ' : document validé (' || new.type::text || ')');
+      perform public.log_journal(target_dossier, 'document_valide', new.type::text, target_colony);
+      if target_dossier is not null then
+        perform public.notify_client(target_dossier, 'document_valide', public.dossier_label(target_dossier) || ' : document validé (' || new.type::text || ')');
+      end if;
     elsif new.statut = 'refuse' then
-      perform public.log_journal(new.dossier_id, 'document_refuse', new.type::text || coalesce(' — ' || new.refus_motif, ''));
-      perform public.notify_client(new.dossier_id, 'document_refuse', public.dossier_label(new.dossier_id) || ' : document refusé (' || new.type::text || ')' || coalesce(' — ' || new.refus_motif, ''));
+      perform public.log_journal(target_dossier, 'document_refuse', new.type::text || coalesce(' — ' || new.refus_motif, ''), target_colony);
+      if target_dossier is not null then
+        perform public.notify_client(target_dossier, 'document_refuse', public.dossier_label(target_dossier) || ' : document refusé (' || new.type::text || ')' || coalesce(' — ' || new.refus_motif, ''));
+      end if;
     elsif new.statut = 'non_requis' and old.statut is distinct from 'non_requis' then
-      perform public.log_journal(new.dossier_id, 'document_non_requis', new.type::text);
+      perform public.log_journal(target_dossier, 'document_non_requis', new.type::text, target_colony);
     elsif old.statut = 'non_requis' and new.statut is distinct from 'non_requis' then
-      perform public.log_journal(new.dossier_id, 'document_requis_again', new.type::text);
+      perform public.log_journal(target_dossier, 'document_requis_again', new.type::text, target_colony);
     end if;
   end if;
 
