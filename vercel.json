@@ -3,13 +3,23 @@
   "redirects": [
     {
       "source": "/(.*)",
-      "has": [{ "type": "host", "value": "leshortensias974.fr" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "leshortensias974.fr"
+        }
+      ],
       "destination": "https://www.leshortensias974.fr/$1",
       "permanent": true
     },
     {
       "source": "/(.*)",
-      "has": [{ "type": "host", "value": "leshortensias974.vercel.app" }],
+      "has": [
+        {
+          "type": "host",
+          "value": "leshortensias974.vercel.app"
+        }
+      ],
       "destination": "https://www.leshortensias974.fr/$1",
       "permanent": true
     },
@@ -31,6 +41,11 @@
     {
       "source": "/espace-ecole/:path*",
       "destination": "/espace-client/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/Sejours-Seniors",
+      "destination": "/",
       "permanent": true
     },
     {
