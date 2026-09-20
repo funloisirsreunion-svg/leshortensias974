@@ -239,7 +239,9 @@ returns trigger
 language plpgsql
 as $$
 begin
-  if new.organization_id is distinct from old.organization_id and not public.current_role_is_admin() then
+  -- auth.uid() null = session serveur/migration (pas un utilisateur du site) : autorisé.
+  if new.organization_id is distinct from old.organization_id
+     and auth.uid() is not null and not public.current_role_is_admin() then
     raise exception 'Modification de l''organisation réservée à l''administrateur.';
   end if;
   return new;
