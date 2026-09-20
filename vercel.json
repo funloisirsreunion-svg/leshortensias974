@@ -44,6 +44,26 @@
       "permanent": true
     },
     {
+      "source": "/contact",
+      "destination": "/contact.html",
+      "permanent": true
+    },
+    {
+      "source": "/contact/",
+      "destination": "/contact.html",
+      "permanent": true
+    },
+    {
+      "source": "/Contact",
+      "destination": "/contact.html",
+      "permanent": true
+    },
+    {
+      "source": "/Contact/",
+      "destination": "/contact.html",
+      "permanent": true
+    },
+    {
       "source": "/Sejours-Seniors",
       "destination": "/",
       "permanent": true
