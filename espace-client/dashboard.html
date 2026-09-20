@@ -72,15 +72,16 @@
     // les informations essentielles sans ouvrir chaque dossier (§11).
     // ==========================================================
     async function loadSejours() {
-      const { data: acces, error } = await supabase
-        .from('dossier_acces')
-        .select('*, dossiers(*)')
-        .neq('statut', 'desactive')
+      // Lecture directe des dossiers : RLS (has_dossier_access) ne renvoie que ceux auxquels
+      // le compte a accès, soit par accès individuel, soit via son organisation.
+      const { data: dossiersRows, error } = await supabase
+        .from('dossiers')
+        .select('*')
         .order('created_at', { ascending: false });
 
       if (error) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(error.message)}</div>`; return; }
 
-      const dossiers = (acces || []).map(a => a.dossiers).filter(Boolean);
+      const dossiers = dossiersRows || [];
       if (dossiers.length === 0) {
         root.innerHTML = `<div class="app-msg app-msg-info">Aucun séjour n'est encore associé à votre compte. Contactez Fun Loisirs Réunion.</div>`;
         return;

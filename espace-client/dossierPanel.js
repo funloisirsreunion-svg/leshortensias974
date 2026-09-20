@@ -56,7 +56,7 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
           <div class="app-kpi"><div class="app-kpi-num" style="font-size:1rem;">${labelOf(STATUTS, dossier.statut)}</div><div class="app-kpi-label">Statut</div></div>
         </div>
         <div style="margin-top:16px;font-size:.92rem;">
-          <p><strong>Date proposée :</strong> ${formatDateFr(dossier.date_proposee)}</p>
+          ${dossier.date_confirmee_debut ? '' : `<p><strong>Date proposée :</strong> ${formatDateFr(dossier.date_proposee)}</p>`}
           <p><strong>Dates confirmées :</strong> ${dossier.date_confirmee_debut ? `du ${formatDateFr(dossier.date_confirmee_debut)} au ${formatDateFr(dossier.date_confirmee_fin)}` : 'pas encore fixées'}</p>
           <p style="color:var(--texte-clair);font-size:.82rem;margin-top:6px;">Seule Fun Loisirs Réunion peut modifier la date ou le statut du séjour.</p>
         </div>`;

@@ -147,7 +147,20 @@ table.app-table a.row-link { color: var(--vert-fonce); font-weight: 700; }
 .app-sejours-passes-body.open { display: block; }
 
 @media (max-width: 720px) {
-  .app-grid-2, .app-grid-3 { grid-template-columns: 1fr; }
+  .app-grid-2 { grid-template-columns: 1fr; }
+  /* Blocs chiffrés : 2 colonnes sur mobile (au lieu d'une ligne par bloc) */
+  .app-grid-3 { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .app-kpi { padding: 10px 8px; }
+  .app-kpi .app-kpi-num { font-size: 1.25rem; }
+  /* Barre du haut : le nom sur sa propre ligne, boutons dessous sans retour à la ligne */
+  .app-topbar { padding: 12px 14px; }
+  .app-topbar .app-user { width: 100%; flex-wrap: wrap; gap: 8px 10px; }
+  .app-topbar .app-user > span:empty { display: none; }
+  .app-topbar .app-user > span { flex: 1 1 100%; }
+  .app-topbar button, .app-topbar .app-btn-sm { white-space: nowrap; }
+  /* Chevron de l'accordéon en haut à droite de la carte */
+  .app-accordion-header { position: relative; padding-right: 44px; }
+  .app-accordion-chevron { position: absolute; top: 16px; right: 16px; }
   .app-container { padding: 18px 14px 50px; }
   .app-card { padding: 18px; }
   .app-accordion-header { padding: 14px 16px; }
