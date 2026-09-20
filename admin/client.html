@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clients — Administration | Les Hortensias</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../app.css" />
+</head>
+<body class="app-body">
+  <div class="app-topbar">
+    <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
+    <div class="app-user">
+      <a href="dashboard.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Tableau de bord</a>
+      <button class="app-logout" id="logoutBtn">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="app-container" style="max-width:900px;">
+    <div id="msg"></div>
+    <div id="content" class="app-loading">Chargement…</div>
+  </div>
+
+  <script type="module">
+    import { getSupabaseClient } from '../lib/supabaseClient.js';
+    import { sejourLabel, sejourDatesLabel, resteAPayer } from '../lib/appConstants.js';
+
+    let supabase;
+    const params = new URLSearchParams(location.search);
+    const orgId = params.get('id');
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const eur = (n) => n === null || n === undefined ? '—' : Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
+    const showMsg = (text, type = 'error') => { $('msg').innerHTML = `<div class="app-msg app-msg-${type}">${esc(text)}</div>`; };
+
+    async function init() {
+      supabase = await getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { location.href = 'index.html'; return; }
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+      if (!profile || profile.role !== 'admin') { location.href = 'index.html'; return; }
+      $('logoutBtn').addEventListener('click', async () => { await supabase.auth.signOut(); location.href = 'index.html'; });
+      if (orgId) await renderOrg(); else await renderList();
+    }
+
+    // ---------- Liste des clients ----------
+    async function renderList() {
+      const { data: orgs, error } = await supabase.from('organizations')
+        .select('id, nom, type, email_contact, contact_nom, archived_at, dossiers(id)')
+        .order('nom');
+      if (error) { $('content').innerHTML = ''; showMsg(error.message); return; }
+      $('content').className = '';
+      $('content').innerHTML = `
+        <h1 style="font-size:1.5rem;color:var(--vert-fonce);margin-bottom:16px;">Clients</h1>
+        <div class="app-field"><input type="search" id="q" placeholder="Rechercher par établissement, contact ou e-mail…" /></div>
+        <div id="list"></div>`;
+      const draw = () => {
+        const q = $('q').value.trim().toLowerCase();
+        const rows = orgs.filter(o => !q || [o.nom, o.contact_nom, o.email_contact].some(v => (v || '').toLowerCase().includes(q)));
+        $('list').innerHTML = rows.length ? rows.map(o => `
+          <a class="app-card" href="client.html?id=${o.id}" style="display:block;text-decoration:none;color:inherit;">
+            <strong>${esc(o.nom)}</strong> ${o.archived_at ? '<span class="app-badge">Archivé</span>' : ''}<br/>
+            <span style="font-size:.85rem;color:var(--texte-clair);">${esc(o.email_contact || 'Pas d’e-mail')} · ${o.dossiers.length} dossier${o.dossiers.length > 1 ? 's' : ''}</span>
+          </a>`).join('') : '<p class="app-empty">Aucun client.</p>';
+      };
+      $('q').addEventListener('input', draw);
+      draw();
+    }
+
+    // ---------- Fiche client ----------
+    async function renderOrg() {
+      const [{ data: org, error }, { data: dossiers }, { data: users }] = await Promise.all([
+        supabase.from('organizations').select('*').eq('id', orgId).single(),
+        supabase.from('dossiers').select('*').eq('organization_id', orgId),
+        supabase.from('organization_users').select('id, role_org, statut, profile_id, profiles(full_name, email)').eq('organization_id', orgId),
+      ]);
+      if (error || !org) { $('content').innerHTML = ''; showMsg('Client introuvable.'); return; }
+
+      const sorted = (dossiers || []).slice().sort((a, b) =>
+        String(b.date_confirmee_debut || b.demande_date_arrivee || b.created_at).localeCompare(String(a.date_confirmee_debut || a.demande_date_arrivee || a.created_at)));
+      const active = (users || []).filter(u => u.statut === 'actif').length;
+      const tot = sorted.filter(d => !d.archived_at).reduce((t, d) => {
+        t.devis += Number(d.montant_facture ?? d.montant_devis ?? 0);
+        t.paye += Number(d.montant_paye || 0);
+        return t;
+      }, { devis: 0, paye: 0 });
+
+      $('content').className = '';
+      $('content').innerHTML = `
+        <a href="client.html" style="font-size:.85rem;">← Tous les clients</a>
+        <h1 style="font-size:1.5rem;color:var(--vert-fonce);margin:8px 0 16px;">${esc(org.nom)}</h1>
+
+        <div class="app-card">
+          <h2>Contact</h2>
+          <form id="orgForm">
+            <div class="app-field"><label>Nom de l'établissement / du groupe</label><input name="nom" value="${esc(org.nom)}" required /></div>
+            <div class="app-field"><label>Contact</label><input name="contact_nom" value="${esc(org.contact_nom || '')}" /></div>
+            <div class="app-field"><label>E-mail de référence</label><input type="email" name="email_contact" value="${esc(org.email_contact || '')}" /></div>
+            <button class="app-btn app-btn-sm" type="submit">Enregistrer</button>
+          </form>
+          <p style="font-size:.85rem;color:var(--texte-clair);margin-top:10px;">
+            Changer le contact ici ne modifie ni les comptes ni les dossiers : les anciens séjours, documents et l'historique restent attachés à ce client.
+          </p>
+        </div>
+
+        <div class="app-card">
+          <h2>Accès client (${active} utilisateur${active > 1 ? 's' : ''} actif${active > 1 ? 's' : ''})</h2>
+          ${(users || []).length ? (users || []).map(u => `
+            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid #eee;">
+              <span>${u.statut === 'actif' ? '🟢' : '⚪'} ${esc(u.profiles?.full_name || '')} <small>${esc(u.profiles?.email || '')}</small>
+                ${u.role_org === 'owner' ? '<span class="app-badge">Référent</span>' : ''}</span>
+              <button class="app-btn app-btn-sm app-btn-outline" data-toggle-user="${u.id}" data-statut="${u.statut}">
+                ${u.statut === 'actif' ? 'Retirer de l’organisation' : 'Réactiver'}</button>
+            </div>`).join('') : '<p class="app-empty">Aucun accès créé pour le moment. Ouvrez un dossier pour inviter le contact.</p>'}
+        </div>
+
+        <div class="app-card">
+          <h2>Dossiers associés : ${sorted.length}</h2>
+          ${sorted.length ? sorted.map(d => {
+            const reste = resteAPayer(d);
+            return `<a href="dossier.html?id=${d.id}" style="display:block;padding:10px 0;border-bottom:1px solid #eee;text-decoration:none;color:inherit;">
+              <strong>${esc(sejourDatesLabel(d))}</strong> — ${esc(sejourLabel(d))} ${d.archived_at ? '<span class="app-badge">Archivé</span>' : ''}<br/>
+              <span style="font-size:.85rem;color:var(--texte-clair);">${esc(d.numero)} · Devis ${eur(d.montant_facture ?? d.montant_devis)} · Payé ${eur(d.montant_paye)} · Reste ${eur(reste)}</span>
+            </a>`;
+          }).join('') : '<p class="app-empty">Aucun dossier.</p>'}
+          <p style="margin-top:12px;"><strong>Synthèse (dossiers non archivés)</strong> — Total ${eur(tot.devis)} · Payé ${eur(tot.paye)} · Reste ${eur(tot.devis - tot.paye)}</p>
+        </div>
+
+        <div class="app-card">
+          <h2>Fusionner avec un autre client</h2>
+          <p style="font-size:.85rem;color:var(--texte-clair);margin-bottom:10px;">
+            À utiliser si le même établissement existe en double (nom écrit différemment, autre e-mail). Les dossiers et les utilisateurs du client choisi seront déplacés vers <strong>${esc(org.nom)}</strong>. Aucune donnée n'est supprimée.
+          </p>
+          <div class="app-field"><input type="search" id="mergeQ" placeholder="Rechercher le doublon…" /></div>
+          <div id="mergeResults"></div>
+        </div>`;
+
+      $('orgForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const email = String(fd.get('email_contact') || '').trim().toLowerCase();
+        const { error: upErr } = await supabase.from('organizations').update({
+          nom: String(fd.get('nom')).trim(), contact_nom: String(fd.get('contact_nom') || '').trim() || null, email_contact: email || null,
+        }).eq('id', orgId);
+        if (upErr) return showMsg(upErr.message);
+        showMsg('Client mis à jour.', 'success');
+      });
+
+      document.querySelectorAll('[data-toggle-user]').forEach(btn => btn.addEventListener('click', async () => {
+        const next = btn.dataset.statut === 'actif' ? 'desactive' : 'actif';
+        if (!window.confirm(next === 'desactive'
+          ? 'Ce compte ne verra plus les dossiers de ce client (sauf accès individuel à un dossier). Continuer ?'
+          : 'Réactiver ce compte pour ce client ?')) return;
+        const { error: e2 } = await supabase.from('organization_users').update({ statut: next }).eq('id', btn.dataset.toggleUser);
+        if (e2) return showMsg(e2.message);
+        renderOrg();
+      }));
+
+      let timer;
+      $('mergeQ').addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+          const q = $('mergeQ').value.trim().replace(/[,()%]/g, ' ');
+          if (q.length < 2) { $('mergeResults').innerHTML = ''; return; }
+          const { data: found } = await supabase.from('organizations').select('id, nom, email_contact, dossiers(id)')
+            .neq('id', orgId).or(`nom.ilike.%${q}%,email_contact.ilike.%${q}%,contact_nom.ilike.%${q}%`).limit(8);
+          $('mergeResults').innerHTML = (found || []).map(o => `
+            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid #eee;">
+              <span>${esc(o.nom)} <small>${esc(o.email_contact || '')} · ${o.dossiers.length} dossier(s)</small></span>
+              <button class="app-btn app-btn-sm" data-merge="${o.id}" data-name="${esc(o.nom)}">Fusionner dans ce client</button>
+            </div>`).join('') || '<p class="app-empty">Aucun résultat.</p>';
+          $('mergeResults').querySelectorAll('[data-merge]').forEach(b => b.addEventListener('click', async () => {
+            if (!window.confirm(`Fusionner « ${b.dataset.name} » dans « ${org.nom} » ? Ses dossiers et utilisateurs seront déplacés ici.`)) return;
+            const { error: mErr } = await supabase.rpc('merge_organizations', { p_source: b.dataset.merge, p_target: orgId });
+            if (mErr) return showMsg(mErr.message);
+            showMsg('Clients fusionnés.', 'success');
+            renderOrg();
+          }));
+        }, 250);
+      });
+    }
+
+    init().catch(err => { $('content').innerHTML = ''; showMsg(err.message); });
+  </script>
+</body>
+</html>

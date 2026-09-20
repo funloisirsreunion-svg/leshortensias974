@@ -128,6 +128,30 @@ export default async function handler(req, res) {
     if (profileError) return res.status(500).json({ error: 'Compte créé mais échec de la création du profil : ' + profileError.message });
   }
 
+  // L'identité métier est l'organisation, pas le compte : on s'assure que le dossier
+  // en a une AVANT de créer l'accès (le trigger dossier_acces y ajoute alors le compte
+  // comme membre). Le compte existant garde son mot de passe et ses autres dossiers.
+  if (!dossier.organization_id) {
+    // Compte existant rattaché à un seul client : le dossier rejoint ce client
+    // (même si le nom de l'établissement est écrit différemment). Sinon, recherche
+    // par nom + e-mail, ou création d'un nouveau client.
+    let targetOrg = null;
+    if (existingUser) {
+      const { data: memberships } = await supabaseAdmin
+        .from('organization_users').select('organization_id').eq('profile_id', userId).eq('statut', 'actif');
+      if (memberships && memberships.length === 1) targetOrg = memberships[0].organization_id;
+    }
+    if (targetOrg) {
+      const { error: attachError } = await supabaseAdmin.from('dossiers').update({ organization_id: targetOrg }).eq('id', dossierId);
+      if (attachError) return res.status(500).json({ error: 'Échec du rattachement à l\'organisation : ' + attachError.message });
+    } else {
+      const { error: orgError } = await supabaseAdmin.rpc('ensure_dossier_organization', {
+        p_dossier_id: dossierId, p_email: normalizedEmail,
+      });
+      if (orgError) return res.status(500).json({ error: 'Échec du rattachement à l\'organisation : ' + orgError.message });
+    }
+  }
+
   const { data: existingAccess } = await supabaseAdmin
     .from('dossier_acces').select('*').eq('dossier_id', dossierId).eq('profile_id', userId).maybeSingle();
 
@@ -169,7 +193,7 @@ export default async function handler(req, res) {
   } else {
     // Compte déjà actif : simple rattachement à un nouveau dossier (ou rappel d'accès).
     subject = buildNewDossierLinkedSubject(dossier);
-    html = buildNewDossierLinkedHtml({ dossier, loginUrl: siteUrl() + '/espace-ecole/' });
+    html = buildNewDossierLinkedHtml({ dossier, loginUrl: siteUrl() + '/espace-client/' });
   }
 
   const mailResult = await sendMail({ to: normalizedEmail, subject, html });

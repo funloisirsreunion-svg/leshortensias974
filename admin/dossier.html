@@ -314,6 +314,7 @@
         <div class="app-card">
           <h2>${esc(dossier.etablissement)} — <span style="color:var(--or);">${esc(dossier.numero)}</span> <span class="app-badge app-badge-gray">${typeInfo.badge} ${typeInfo.label}</span> ${dossier.source === 'public' ? '<span class="app-badge app-badge-orange">Demande site public</span>' : ''} ${dossier.archived_at ? '<span class="app-badge app-badge-gray">📦 Archivé</span>' : ''}</h2>
           <div id="msgActions"></div>
+          ${dossier.organization_id ? `<p style="margin:0 0 14px;font-size:.9rem;"><a href="client.html?id=${dossier.organization_id}">👥 Voir la fiche client et ses autres dossiers</a></p>` : ''}
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
             ${quickActions.map(a => `<button class="app-btn app-btn-sm ${a.cls}" data-quick-action="${a.id}">${a.label}</button>`).join('')}
             ${dossier.archived_at
