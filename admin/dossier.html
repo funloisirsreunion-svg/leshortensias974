@@ -35,6 +35,8 @@
     let supabase, session, dossier, regimes, documents, paiements, signalements, historique, journal, acces;
     let showNonRequis = false;
     let deletePanelOpen = false;
+    let autresDossiersParProfil = {};
+    let clientSearchResults = null;
 
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
     function opt(list, val, key='value', lab='label') {
@@ -132,6 +134,25 @@
       if (dErr || !d) { root.innerHTML = `<div class="app-msg app-msg-error">Dossier introuvable.</div>`; return; }
       dossier = d; regimes = r || []; documents = docs || []; paiements = pmts || []; signalements = sig || [];
       historique = hist || []; journal = journ || []; acces = accesRows || [];
+
+      // Pour chaque compte client rattaché à CE dossier, retrouve ses AUTRES
+      // dossiers (même compte, autres séjours) — §13 : côté Admin, l'accès à
+      // un client doit montrer tous ses dossiers, pas un seul à la fois.
+      autresDossiersParProfil = {};
+      const profileIds = acces.map(a => a.profile_id).filter(Boolean);
+      if (profileIds.length) {
+        const { data: autres } = await supabase
+          .from('dossier_acces')
+          .select('profile_id, dossiers(id, numero, etablissement, structure_nom, client_type, statut)')
+          .in('profile_id', profileIds)
+          .neq('dossier_id', dossierId)
+          .neq('statut', 'desactive');
+        (autres || []).forEach(row => {
+          if (!row.dossiers) return;
+          (autresDossiersParProfil[row.profile_id] ||= []).push(row.dossiers);
+        });
+      }
+
       render();
     }
 
@@ -293,6 +314,7 @@
         <div class="app-card">
           <h2>${esc(dossier.etablissement)} — <span style="color:var(--or);">${esc(dossier.numero)}</span> <span class="app-badge app-badge-gray">${typeInfo.badge} ${typeInfo.label}</span> ${dossier.source === 'public' ? '<span class="app-badge app-badge-orange">Demande site public</span>' : ''} ${dossier.archived_at ? '<span class="app-badge app-badge-gray">📦 Archivé</span>' : ''}</h2>
           <div id="msgActions"></div>
+          ${dossier.organization_id ? `<p style="margin:0 0 14px;font-size:.9rem;"><a href="client.html?id=${dossier.organization_id}">👥 Voir la fiche client et ses autres dossiers</a></p>` : ''}
           <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
             ${quickActions.map(a => `<button class="app-btn app-btn-sm ${a.cls}" data-quick-action="${a.id}">${a.label}</button>`).join('')}
             ${dossier.archived_at
@@ -465,9 +487,13 @@
           ${acces.length ? acces.map(a => {
             const p = a.profiles;
             const statutInfo = ACCESS_STATUTS.find(s => s.value === a.statut) || {};
+            const autres = autresDossiersParProfil[a.profile_id] || [];
             return `
-            <div class="app-doc-row">
-              <span class="app-doc-name">${esc(p?.email || '—')} ${p?.full_name ? '(' + esc(p.full_name) + ')' : ''}</span>
+            <div class="app-doc-row" style="align-items:flex-start;">
+              <span class="app-doc-name">
+                ${esc(p?.email || '—')} ${p?.full_name ? '(' + esc(p.full_name) + ')' : ''}
+                ${autres.length ? `<br/><span style="font-size:.78rem;color:var(--texte-clair);font-weight:400;">Autres dossiers de ce compte : ${autres.map(dd => `<a href="dossier.html?id=${dd.id}" style="color:var(--vert-fonce);">${esc(dd.numero)} — ${esc(dd.etablissement || dd.structure_nom || '')}</a>`).join(', ')}</span>` : ''}
+              </span>
               <span class="app-badge app-badge-${statutInfo.color || 'gray'}">${statutInfo.label || a.statut}</span>
               ${a.statut === 'desactive'
                 ? `<button class="app-btn app-btn-sm app-btn-outline" data-toggle-access="enable" data-user-id="${p?.id}">Réactiver</button>`
@@ -479,9 +505,22 @@
           }).join('') : `<p style="font-size:.85rem;color:var(--texte-clair);margin-bottom:12px;">Aucun accès créé. À faire une fois le devis accepté.</p>`}
           <form id="teacherForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-top:16px;">
             <div class="app-field" style="margin:0;"><label>Nom</label><input type="text" name="fullName" /></div>
-            <div class="app-field" style="margin:0;flex:1;min-width:200px;"><label>E-mail *</label><input type="email" name="email" required /></div>
+            <div class="app-field" style="margin:0;flex:1;min-width:200px;"><label>E-mail *</label><input type="email" name="email" id="teacherEmailInput" required /></div>
             <button type="submit" class="app-btn app-btn-sm">Créer / ajouter un accès client</button>
           </form>
+          <div id="emailDupeHint" style="margin-top:10px;"></div>
+
+          <details style="margin-top:20px;">
+            <summary style="cursor:pointer;color:var(--vert-fonce);font-weight:700;">Rattacher ce dossier à un client existant</summary>
+            <p style="font-size:.85rem;color:var(--texte-clair);margin:10px 0;">
+              Utile si le nom de l'établissement est écrit différemment, si une autre adresse e-mail a été utilisée, ou pour rattacher un dossier historique. Aucun nouveau compte ne sera créé.
+            </p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;">
+              <div class="app-field" style="margin:0;flex:1;min-width:220px;"><label>Établissement, nom ou e-mail</label><input type="text" id="clientSearchInput" placeholder="Ex : École Adrienne Lenormand" /></div>
+              <button type="button" class="app-btn app-btn-sm app-btn-outline" id="clientSearchBtn">Rechercher</button>
+            </div>
+            <div id="clientSearchResultsBox" style="margin-top:12px;"></div>
+          </details>
         </div>
 
         <div class="app-card">
@@ -796,6 +835,22 @@
           await createTeacherAccess(fd.get('email'), fd.get('fullName'));
         });
       }
+      const teacherEmailInput = document.getElementById('teacherEmailInput');
+      if (teacherEmailInput) {
+        let dupeTimer;
+        teacherEmailInput.addEventListener('input', () => {
+          clearTimeout(dupeTimer);
+          dupeTimer = setTimeout(() => checkEmailDupe(teacherEmailInput.value), 400);
+        });
+      }
+      const clientSearchBtn = document.getElementById('clientSearchBtn');
+      const clientSearchInput = document.getElementById('clientSearchInput');
+      if (clientSearchBtn && clientSearchInput) {
+        const runSearch = () => searchExistingClients(clientSearchInput.value);
+        clientSearchBtn.addEventListener('click', runSearch);
+        clientSearchInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); runSearch(); } });
+      }
+      if (clientSearchResults) renderClientSearchResults();
       document.querySelectorAll('[data-resend-access]').forEach(btn => {
         btn.addEventListener('click', () => createTeacherAccess(btn.dataset.resendAccess, btn.dataset.name));
       });
@@ -948,6 +1003,77 @@
         const json = await res.json();
         if (json.emailSent) showMsg('msgDocs', 'Document enregistré, e-mail envoyé au client.', 'success');
       } catch { /* non bloquant */ }
+    }
+
+    // Détection en direct (§14) : dès que l'admin saisit une adresse e-mail déjà
+    // connue, on le prévient AVANT l'envoi — le compte existant sera rattaché,
+    // jamais dupliqué, jamais de nouveau mot de passe envoyé.
+    async function checkEmailDupe(rawEmail) {
+      const hint = document.getElementById('emailDupeHint');
+      if (!hint) return;
+      const email = (rawEmail || '').trim().toLowerCase();
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { hint.innerHTML = ''; return; }
+      const { data: match } = await supabase.from('profiles').select('id, role, full_name, email').ilike('email', email).maybeSingle();
+      if (!match) { hint.innerHTML = ''; return; }
+      if (match.role === 'admin') {
+        hint.innerHTML = `<div class="app-msg app-msg-error">Cette adresse appartient à un compte administrateur — impossible de l'utiliser comme accès client.</div>`;
+        return;
+      }
+      const dejaCeDossier = acces.some(a => a.profile_id === match.id);
+      if (dejaCeDossier) { hint.innerHTML = `<div class="app-msg app-msg-info">Ce compte a déjà accès à ce dossier.</div>`; return; }
+      hint.innerHTML = `<div class="app-msg app-msg-info">Un espace client existe déjà pour cette adresse (${esc(match.full_name || match.email)}). Ce dossier sera simplement rattaché à ce compte existant — aucun nouveau mot de passe ne sera envoyé.</div>`;
+    }
+
+    // Rattachement manuel à un client existant (§15) : recherche par établissement,
+    // nom de contact ou e-mail, parmi les comptes clients déjà créés.
+    async function searchExistingClients(query) {
+      const box = document.getElementById('clientSearchResultsBox');
+      // PostgREST découpe le filtre .or() sur "," et "()" : on retire ces
+      // caractères de la recherche pour éviter une requête malformée sur un
+      // nom d'établissement qui en contiendrait (ex. "Collège (annexe)").
+      const q = (query || '').trim().replace(/[,()]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (q.length < 2) { box.innerHTML = `<p style="font-size:.85rem;color:var(--texte-clair);">Saisissez au moins 2 caractères.</p>`; clientSearchResults = null; return; }
+      box.innerHTML = `<p style="font-size:.85rem;color:var(--texte-clair);">Recherche…</p>`;
+
+      const [{ data: byProfile }, { data: byDossier }] = await Promise.all([
+        supabase.from('profiles').select('id, email, full_name').eq('role', 'client').or(`full_name.ilike.%${q}%,email.ilike.%${q}%`).limit(10),
+        supabase.from('dossiers').select('etablissement, structure_nom, dossier_acces(profile_id, profiles(id, email, full_name))').or(`etablissement.ilike.%${q}%,structure_nom.ilike.%${q}%`).limit(10),
+      ]);
+
+      const candidats = new Map();
+      (byProfile || []).forEach(p => candidats.set(p.id, { id: p.id, email: p.email, full_name: p.full_name, via: null }));
+      (byDossier || []).forEach(d => {
+        (d.dossier_acces || []).forEach(a => {
+          const p = a.profiles;
+          if (!p) return;
+          if (!candidats.has(p.id)) candidats.set(p.id, { id: p.id, email: p.email, full_name: p.full_name, via: d.etablissement || d.structure_nom });
+        });
+      });
+
+      // Exclut les comptes déjà rattachés à ce dossier.
+      acces.forEach(a => candidats.delete(a.profile_id));
+
+      clientSearchResults = Array.from(candidats.values());
+      renderClientSearchResults();
+    }
+
+    function renderClientSearchResults() {
+      const box = document.getElementById('clientSearchResultsBox');
+      if (!box) return;
+      if (!clientSearchResults) { box.innerHTML = ''; return; }
+      if (clientSearchResults.length === 0) { box.innerHTML = `<p style="font-size:.85rem;color:var(--texte-clair);">Aucun compte client trouvé pour cette recherche.</p>`; return; }
+      box.innerHTML = clientSearchResults.map(c => `
+        <div class="app-doc-row">
+          <span class="app-doc-name">${esc(c.full_name || '—')} — ${esc(c.email)} ${c.via ? `<span style="font-weight:400;color:var(--texte-clair);font-size:.78rem;">(trouvé via ${esc(c.via)})</span>` : ''}</span>
+          <button type="button" class="app-btn app-btn-sm" data-attach-existing="${esc(c.email)}" data-attach-name="${esc(c.full_name || '')}">Rattacher ce dossier à ce compte</button>
+        </div>`).join('');
+      box.querySelectorAll('[data-attach-existing]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!window.confirm(`Rattacher ce dossier au compte existant ${btn.dataset.attachExisting} ?`)) return;
+          clientSearchResults = null;
+          await createTeacherAccess(btn.dataset.attachExisting, btn.dataset.attachName);
+        });
+      });
     }
 
     async function createTeacherAccess(email, fullName) {

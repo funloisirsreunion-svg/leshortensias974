@@ -92,6 +92,11 @@ export default async function handler(req, res) {
 
     if (error) throw error;
 
+    // Rattache le dossier à son organisation (retrouvée par nom + e-mail, sinon créée).
+    // Best-effort : la création du dossier ne doit jamais échouer à cause de cette étape.
+    const { data: organizationId } = await supabaseAdmin.rpc('ensure_dossier_organization', { p_dossier_id: data.id });
+    if (organizationId) data.organization_id = organizationId;
+
     return res.status(201).json({ dossier: data });
   } catch (error) {
     return res.status(500).json({ error: error.message || 'Échec de la création du dossier.' });
