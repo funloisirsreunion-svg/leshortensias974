@@ -38,6 +38,10 @@
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
 
+    // Après connexion, retour vers le dossier demandé (uniquement dossier.html?id=<uuid>, jamais d'URL libre).
+    const nextParam = new URLSearchParams(window.location.search).get('next') || '';
+    const afterLogin = /^dossier\.html\?id=[0-9a-fA-F-]{36}$/.test(nextParam) ? nextParam : 'dashboard.html';
+
     const msgBox = document.getElementById('msgBox');
     const form = document.getElementById('loginForm');
     const submitBtn = document.getElementById('submitBtn');
@@ -53,7 +57,7 @@
         const { data: { session } } = await supabase.auth.getSession();
         if (!session) return;
         const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
-        if (profile && profile.role === 'admin') window.location.href = 'dashboard.html';
+        if (profile && profile.role === 'admin') window.location.href = afterLogin;
       } catch (e) { /* pas encore configuré */ }
     }
     checkExistingSession();
@@ -74,7 +78,7 @@
           await supabase.auth.signOut();
           throw new Error('Ce compte n\'a pas les droits administrateur.');
         }
-        window.location.href = 'dashboard.html';
+        window.location.href = afterLogin;
       } catch (error) {
         showMsg(error.message === 'Invalid login credentials' ? 'E-mail ou mot de passe incorrect.' : (error.message || 'Échec de la connexion.'));
         submitBtn.disabled = false;

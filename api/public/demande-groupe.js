@@ -1,4 +1,6 @@
 import { Resend } from 'resend';
+import { getQuoteNotificationRecipients, getSiteUrl } from '../../lib/notificationRecipients.js';
+import { adminLink } from '../../lib/quoteEmailLayout.js';
 import { getSupabaseAdmin } from '../../lib/supabaseAdmin.js';
 import { assignGrpNumber } from '../../lib/grpDossierNumber.js';
 import { buildDemandeGroupeSubject, buildDemandeGroupeHtml } from '../../lib/demandeGroupeEmail.js';
@@ -103,10 +105,10 @@ export default async function handler(req, res) {
       const resend = new Resend(process.env.RESEND_API_KEY);
       const from = process.env.EMAIL_FROM
         || (process.env.RESEND_EMAIL_DOMAIN ? `Les Hortensias <demandes@${process.env.RESEND_EMAIL_DOMAIN}>` : 'Les Hortensias <onboarding@resend.dev>');
-      const adminUrl = (process.env.SITE_URL || 'https://leshortensias974.fr') + `/admin/dossier.html?id=${dossier.id}`;
+      const adminUrl = adminLink(getSiteUrl(), dossier.id);
       const { error: sendError } = await resend.emails.send({
         from,
-        to: process.env.EMAIL_TO || 'contact.funloisirsreunion@gmail.com',
+        to: getQuoteNotificationRecipients(),
         subject: buildDemandeGroupeSubject(structureNom),
         html: buildDemandeGroupeHtml({ dossier, adminUrl }),
       });
