@@ -603,9 +603,13 @@ alter table public.documents add column if not exists reopened_by uuid reference
 alter table public.documents add column if not exists deleted_at timestamptz;
 alter table public.documents add column if not exists deleted_by uuid references auth.users(id) on delete set null;
 
+-- Reprise des dates de premier dépôt (verrou de permission suspendu le temps de
+-- cette seule mise à jour : la session de migration n'est pas un admin connecté).
+alter table public.documents disable trigger documents_enforce_field_permissions;
 update public.documents
    set first_uploaded_at = coalesce(uploaded_at, created_at)
  where storage_path is not null and first_uploaded_at is null;
+alter table public.documents enable trigger documents_enforce_field_permissions;
 
 create table if not exists public.document_versions (
   id uuid primary key default gen_random_uuid(),
