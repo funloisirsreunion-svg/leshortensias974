@@ -54,6 +54,8 @@
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
       if (!profile) { root.innerHTML = `<div class="app-msg app-msg-error">Profil introuvable. Contactez l'administrateur.</div>`; return; }
       if (profile.role === 'admin') { window.location.href = '../admin/dashboard.html'; return; }
+      // Mot de passe provisoire pas encore remplacé : changement obligatoire d'abord.
+      if (profile.must_change_password) { window.location.href = 'index.html'; return; }
       document.getElementById('userLabel').textContent = profile.full_name || profile.email || '';
 
       if (profile.email !== session.user.email) {
@@ -93,6 +95,10 @@
       (allDocs || []).forEach(doc => {
         (docsByDossier[doc.dossier_id] ||= []).push(doc);
       });
+
+      // États des blocs (Classes) : alimentent les badges "actions nécessaires".
+      const { data: allBlocs } = await supabase.from('dossier_blocs').select('*').in('dossier_id', ids);
+      dossiers.forEach(d => { d._blocs = (allBlocs || []).filter(b => b.dossier_id === d.id); });
 
       sejours = dossiers.map(d => ({ dossier: d, documents: docsByDossier[d.id] || [] }));
       renderSejours();

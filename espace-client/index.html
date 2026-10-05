@@ -30,6 +30,22 @@
         <button type="submit" class="app-btn" style="width:100%;" id="submitBtn">Se connecter</button>
       </form>
 
+      <!-- Première connexion : remplacement obligatoire du mot de passe provisoire -->
+      <form id="changePwdForm" style="display:none;">
+        <p style="margin-bottom:14px;">Bienvenue ! Pour sécuriser votre espace, choisissez maintenant votre mot de passe personnel. Le mot de passe provisoire reçu par e-mail ne fonctionnera plus ensuite.</p>
+        <div class="app-field">
+          <label for="newPwd">Nouveau mot de passe</label>
+          <input type="password" id="newPwd" required minlength="10" autocomplete="new-password" />
+          <div class="app-field-hint">10 caractères minimum, avec au moins une lettre et un chiffre.</div>
+        </div>
+        <div class="app-field">
+          <label for="newPwd2">Confirmer le mot de passe</label>
+          <input type="password" id="newPwd2" required minlength="10" autocomplete="new-password" />
+        </div>
+        <button type="submit" class="app-btn" style="width:100%;" id="changePwdBtn">Enregistrer mon mot de passe</button>
+        <p style="text-align:center;margin-top:12px;"><a href="#" id="cancelChangeLink" style="font-size:.85rem;color:var(--texte-clair);">Se déconnecter</a></p>
+      </form>
+
       <p style="text-align:center;margin-top:16px;">
         <a href="#" id="forgotLink" style="font-size:.85rem;color:var(--vert-fonce);">Mot de passe oublié ?</a>
       </p>
@@ -52,14 +68,70 @@
       msgBox.innerHTML = `<div class="app-msg app-msg-${type}">${text}</div>`;
     }
 
+    const changePwdForm = document.getElementById('changePwdForm');
+
+    // Après connexion : si le mot de passe est encore provisoire, on impose son
+    // remplacement (l'accès aux dossiers est de toute façon bloqué en base tant
+    // que ce n'est pas fait).
+    async function routeAfterLogin(supabase, session) {
+      const { data: profile } = await supabase.from('profiles').select('must_change_password').eq('id', session.user.id).maybeSingle();
+      if (profile && profile.must_change_password) {
+        form.style.display = 'none';
+        forgotLink.parentElement.style.display = 'none';
+        changePwdForm.style.display = 'block';
+        msgBox.innerHTML = '';
+        document.getElementById('newPwd').focus();
+        return;
+      }
+      window.location.href = 'dashboard.html';
+    }
+
     async function redirectIfLoggedIn() {
       try {
         const supabase = await getSupabaseClient();
         const { data: { session } } = await supabase.auth.getSession();
-        if (session) window.location.href = 'dashboard.html';
+        if (session) await routeAfterLogin(supabase, session);
       } catch (e) { /* configuration pas prête, on laisse l'utilisateur sur le login */ }
     }
     redirectIfLoggedIn();
+
+    changePwdForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pwd = document.getElementById('newPwd').value;
+      const pwd2 = document.getElementById('newPwd2').value;
+      if (pwd !== pwd2) { showMsg('Les deux mots de passe ne correspondent pas.'); return; }
+      if (pwd.length < 10 || !/[A-Za-z]/.test(pwd) || !/[0-9]/.test(pwd)) {
+        showMsg('Le mot de passe doit contenir au moins 10 caractères, dont au moins une lettre et un chiffre.');
+        return;
+      }
+      const btn = document.getElementById('changePwdBtn');
+      btn.disabled = true;
+      btn.textContent = 'Enregistrement…';
+      try {
+        const supabase = await getSupabaseClient();
+        const { error } = await supabase.auth.updateUser({ password: pwd });
+        if (error) {
+          throw new Error(/different|same/i.test(error.message)
+            ? 'Le nouveau mot de passe doit être différent du mot de passe provisoire.'
+            : error.message);
+        }
+        const { data: { session } } = await supabase.auth.getSession();
+        const { data: profile } = await supabase.from('profiles').select('must_change_password').eq('id', session.user.id).maybeSingle();
+        if (profile && profile.must_change_password) throw new Error('Le changement n\'a pas pu être pris en compte. Merci de réessayer.');
+        window.location.href = 'dashboard.html';
+      } catch (error) {
+        showMsg(error.message || 'Échec du changement de mot de passe.');
+        btn.disabled = false;
+        btn.textContent = 'Enregistrer mon mot de passe';
+      }
+    });
+
+    document.getElementById('cancelChangeLink').addEventListener('click', async (e) => {
+      e.preventDefault();
+      const supabase = await getSupabaseClient();
+      await supabase.auth.signOut();
+      window.location.reload();
+    });
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -69,9 +141,9 @@
         const supabase = await getSupabaseClient();
         const email = document.getElementById('email').value.trim();
         const password = document.getElementById('password').value;
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data: signIn, error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        window.location.href = 'dashboard.html';
+        await routeAfterLogin(supabase, signIn.session);
       } catch (error) {
         showMsg(error.message === 'Invalid login credentials'
           ? 'E-mail ou mot de passe incorrect.'

@@ -28,11 +28,13 @@
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
     import { STATUTS, DOC_STATUTS, REGIMES, NIVEAUX, JOURNAL_LABELS, ACCESS_STATUTS, CLIENT_TYPES, STRUCTURE_TYPES, FORMULES, ALL_DOCUMENT_TYPES, DOCUMENT_SOURCES, labelForDocumentType, labelOf, formatDateFr, formatMontant, docCompleteness, computeClassEstimate } from '../lib/appConstants.js';
+    import { blocState, isLockedForAdmin, renderBlocStatusPanel, renderBlocHistory, renderDocumentHistory, renderDocumentDates, documentsSummary, summarizeBlocData, formatDateTimeFr, formatDateShortFr, blocLabel, BLOC_STATUTS } from '../lib/blocValidation.js';
 
     const params = new URLSearchParams(window.location.search);
     const dossierId = params.get('id');
     const root = document.getElementById('appRoot');
     let supabase, session, dossier, regimes, documents, paiements, signalements, historique, journal, acces;
+    let blocs = [], blocVersions = [], blocEvents = [], docVersions = [];
     let showNonRequis = false;
     let deletePanelOpen = false;
     let autresDossiersParProfil = {};
@@ -121,7 +123,7 @@
     }
 
     async function loadAll() {
-      const [{ data: d, error: dErr }, { data: r }, { data: docs }, { data: pmts }, { data: sig }, { data: hist }, { data: journ }, { data: accesRows }] = await Promise.all([
+      const [{ data: d, error: dErr }, { data: r }, { data: docs }, { data: pmts }, { data: sig }, { data: hist }, { data: journ }, { data: accesRows }, { data: bl }, { data: bv }, { data: be }, { data: dv }] = await Promise.all([
         supabase.from('dossiers').select('*').eq('id', dossierId).single(),
         supabase.from('regimes_alimentaires').select('*').eq('dossier_id', dossierId).order('type'),
         supabase.from('documents').select('*').eq('dossier_id', dossierId),
@@ -130,10 +132,15 @@
         supabase.from('statuts_historique').select('*').eq('dossier_id', dossierId).order('changed_at', { ascending: false }),
         supabase.from('dossier_journal').select('*').eq('dossier_id', dossierId).order('created_at', { ascending: false }),
         supabase.from('dossier_acces').select('*, profiles(*)').eq('dossier_id', dossierId).order('created_at'),
+        supabase.from('dossier_blocs').select('*').eq('dossier_id', dossierId),
+        supabase.from('dossier_bloc_versions').select('*').eq('dossier_id', dossierId).order('version'),
+        supabase.from('dossier_bloc_events').select('*').eq('dossier_id', dossierId).order('created_at'),
+        supabase.from('document_versions').select('*').eq('dossier_id', dossierId).order('archived_at'),
       ]);
       if (dErr || !d) { root.innerHTML = `<div class="app-msg app-msg-error">Dossier introuvable.</div>`; return; }
       dossier = d; regimes = r || []; documents = docs || []; paiements = pmts || []; signalements = sig || [];
       historique = hist || []; journal = journ || []; acces = accesRows || [];
+      blocs = bl || []; blocVersions = bv || []; blocEvents = be || []; docVersions = dv || [];
 
       // Pour chaque compte client rattaché à CE dossier, retrouve ses AUTRES
       // dossiers (même compte, autres séjours) — §13 : côté Admin, l'accès à
@@ -185,6 +192,72 @@
         actions.push({ id: 'relance', label: 'Envoyer une relance', cls: 'app-btn-outline' });
       }
       return actions;
+    }
+
+    // ==========================================================
+    // Validation par blocs (Classes de découverte uniquement)
+    // ==========================================================
+    function isSchool() { return dossier.client_type === 'school'; }
+    function bState(bloc) { return blocState(blocs, bloc); }
+    function bLocked(bloc) { return isSchool() && isLockedForAdmin(bState(bloc)); }
+    function ro(bloc) { return bLocked(bloc) ? 'readonly' : ''; }
+
+    const VALIDATE_LABELS = { coordonnees: 'Valider les coordonnées', devis: 'Valider le devis', effectifs: 'Valider les effectifs', regimes: 'Valider les régimes alimentaires' };
+    const REOPEN_LABELS = { coordonnees: 'Rouvrir pour modification', devis: 'Rouvrir le devis', effectifs: 'Rouvrir les effectifs', regimes: 'Rouvrir les informations alimentaires' };
+
+    function currentVersionRow(bloc) {
+      const st = bState(bloc);
+      return blocVersions.find(v => v.bloc === bloc && v.version === st.version) || null;
+    }
+
+    // Statut + dates + boutons + historique, affiché en tête de chaque partie.
+    function adminBlocSection(bloc) {
+      if (!isSchool()) return '';
+      const st = bState(bloc);
+      const v = currentVersionRow(bloc);
+      let recap = '';
+      if (st.statut === 'client_confirmed' && v && v.donnees_client) {
+        recap = `<div class="app-msg app-msg-info" style="margin:0 0 8px;"><strong>${esc(blocLabel(bloc))} confirmé(e)s par le client :</strong><br/>${esc(summarizeBlocData(bloc, v.donnees_client))}<br/><span style="font-size:.82rem;">Confirmé(e)s le ${formatDateTimeFr(v.client_confirmed_at)}</span></div>`;
+      }
+      const buttons = [];
+      if (st.statut !== 'validated') buttons.push(`<button type="button" class="app-btn app-btn-sm" data-bloc-validate="${bloc}">${VALIDATE_LABELS[bloc]}</button>`);
+      if (st.statut === 'validated' || st.statut === 'client_confirmed') buttons.push(`<button type="button" class="app-btn app-btn-sm app-btn-outline" data-bloc-reopen="${bloc}">${REOPEN_LABELS[bloc]}</button>`);
+      return `
+        <div class="js-bloc-${bloc}">
+          ${renderBlocStatusPanel(bloc, st, 'admin')}
+          ${recap}
+          <div class="app-bloc-actions">${buttons.join('')}</div>
+          ${renderBlocHistory(bloc, blocVersions, blocEvents)}
+        </div>`;
+    }
+
+    function overviewLine(bloc, extra = '') {
+      const st = bState(bloc);
+      const s = BLOC_STATUTS[st.statut];
+      let txt = `${s.dot} ${s.label}`;
+      if (st.statut === 'validated' && st.admin_validated_at) txt = `🟢 Validé(e)s – ${formatDateShortFr(st.admin_validated_at)} 🔒`;
+      if (st.statut === 'client_confirmed') txt = `🔵 Confirmé(e)s par le client – validation Admin nécessaire`;
+      if (st.statut === 'reopened') txt = `🟠 Rouvert(e)s – en attente de mise à jour par le client (version ${st.version})`;
+      if (st.modification_requested_at) txt += ` · 🔴 Modification demandée`;
+      return `<div class="app-overview-row"><span class="app-overview-name">${esc(blocLabel(bloc))}</span><span class="app-overview-val">${txt}${extra ? `<br/><span style="color:var(--texte-clair);font-size:.85rem;">${extra}</span>` : ''}</span></div>`;
+    }
+
+    function renderOverview() {
+      if (!isSchool()) return '';
+      const docs = documentsSummary(documents);
+      const eff = bState('effectifs');
+      const effData = (currentVersionRow('effectifs') || {})[eff.statut === 'validated' ? 'donnees_validees' : 'donnees_client'];
+      const effExtra = `${dossier.effectif_prev_eleves ?? '—'} élèves / ${dossier.effectif_prev_profs ?? '—'} professeurs / ${dossier.effectif_prev_accompagnateurs ?? '—'} accompagnateurs`;
+      const devisDoc = documents.find(d => d.type === 'devis');
+      return `
+        <div class="app-card">
+          <h2>Suivi des validations</h2>
+          ${overviewLine('coordonnees')}
+          ${overviewLine('devis', devisDoc && devisDoc.file_name ? esc(devisDoc.file_name) : '')}
+          <div class="app-overview-row"><span class="app-overview-name">Documents</span><span class="app-overview-val">${docs.dot} ${docs.text || 'aucun document requis'}</span></div>
+          ${overviewLine('effectifs', effData ? esc(summarizeBlocData('effectifs', effData).split(' · ')[0]) : effExtra)}
+          ${overviewLine('regimes')}
+        </div>`;
     }
 
     function renderGeneralFields() {
@@ -256,18 +329,22 @@
       }
 
       // school (par défaut)
+      const c = ro('coordonnees');
       return `
+            <h3 style="margin-top:4px;">Coordonnées de l'établissement</h3>
+            ${adminBlocSection('coordonnees')}
             <div class="app-grid-3">
-              <div class="app-field"><label>Établissement</label><input type="text" name="etablissement" value="${esc(dossier.etablissement)}" required /></div>
-              <div class="app-field"><label>Commune</label><input type="text" name="commune" value="${esc(dossier.commune)}" /></div>
-              <div class="app-field"><label>Code postal</label><input type="text" name="code_postal" value="${esc(dossier.code_postal)}" inputmode="numeric" maxlength="10" /></div>
+              <div class="app-field"><label>Établissement</label><input type="text" name="etablissement" value="${esc(dossier.etablissement)}" required ${c} /></div>
+              <div class="app-field"><label>Commune</label><input type="text" name="commune" value="${esc(dossier.commune)}" ${c} /></div>
+              <div class="app-field"><label>Code postal</label><input type="text" name="code_postal" value="${esc(dossier.code_postal)}" inputmode="numeric" maxlength="10" ${c} /></div>
             </div>
-            <div class="app-field"><label>Adresse</label><input type="text" name="adresse" value="${esc(dossier.adresse)}" /></div>
+            <div class="app-field"><label>Adresse</label><input type="text" name="adresse" value="${esc(dossier.adresse)}" ${c} /></div>
             <div class="app-grid-3">
-              <div class="app-field"><label>Contact</label><input type="text" name="contact_nom" value="${esc(dossier.contact_nom)}" /></div>
-              <div class="app-field"><label>Téléphone</label><input type="text" name="contact_telephone" value="${esc(dossier.contact_telephone)}" /></div>
-              <div class="app-field"><label>E-mail</label><input type="email" name="contact_email" value="${esc(dossier.contact_email)}" /></div>
+              <div class="app-field"><label>Contact</label><input type="text" name="contact_nom" value="${esc(dossier.contact_nom)}" ${c} /></div>
+              <div class="app-field"><label>Téléphone</label><input type="text" name="contact_telephone" value="${esc(dossier.contact_telephone)}" ${c} /></div>
+              <div class="app-field"><label>E-mail</label><input type="email" name="contact_email" value="${esc(dossier.contact_email)}" ${c} /></div>
             </div>
+            <h3>Séjour</h3>
             <div class="app-grid-3">
               <div class="app-field"><label>Programme</label><select name="programme"><option value="">—</option>${opt([{value:'nature',label:'Nature'},{value:'volcan',label:'Volcan'}], dossier.programme)}</select></div>
               <div class="app-field"><label>Durée</label><select name="duree"><option value="">—</option>${opt([{value:'3',label:'3 jours'},{value:'4',label:'4 jours'},{value:'5',label:'5 jours'}], String(dossier.duree||''))}</select></div>
@@ -290,18 +367,25 @@
             <span style="font-size:.72rem;color:var(--texte-clair);font-weight:400;"> · ${esc(sourceInfo.label || doc.document_source)}${doc.client_visible ? '' : ' · 🔒 interne'}</span>
             ${doc.commentaire ? `<br/><span style="font-size:.78rem;color:var(--texte-clair);font-weight:400;">${esc(doc.commentaire)}</span>` : ''}
             ${doc.statut === 'refuse' && doc.refus_motif ? `<br/><span style="font-size:.78rem;color:#c0392b;font-weight:400;">Motif : ${esc(doc.refus_motif)}</span>` : ''}
+            ${renderDocumentDates(doc)}
+            ${doc.statut === 'valide' ? '<span class="app-doc-dates">🟢 Document validé — verrouillé côté client 🔒</span>' : ''}
+            ${renderDocumentHistory(doc, docVersions, blocEvents, { withDownload: true })}
           </span>
           ${doc.file_name ? `<a href="#" data-download="${doc.storage_path}" style="font-size:.82rem;color:var(--vert-fonce);">${esc(doc.file_name)}</a>` : '<span style="font-size:.8rem;color:var(--texte-clair);">Aucun fichier</span>'}
+          ${isSchool() && ['devis', 'devis_signe'].includes(doc.type) && bLocked('devis') ? '<span style="font-size:.75rem;color:var(--texte-clair);">🔒 Devis validé</span>' : `
           <label class="app-btn app-btn-sm app-btn-outline" style="cursor:pointer;">
             ${doc.file_name ? 'Remplacer' : 'Déposer'}
             <input type="file" data-doc-upload="${doc.type}" style="display:none;" />
-          </label>
+          </label>`}
+          ${doc.statut === 'valide' ? `<button type="button" class="app-btn app-btn-sm app-btn-outline" data-doc-reopen="${doc.type}" title="Permettre au client de déposer une nouvelle version">Rouvrir</button>` : ''}
           <select data-doc-statut="${doc.type}" data-doc-source="${doc.document_source}" style="padding:6px 10px;border-radius:6px;border:1px solid var(--beige-fonce);">${opt(DOC_STATUTS, doc.statut)}</select>
           <select data-doc-visible="${doc.type}" style="padding:6px 10px;border-radius:6px;border:1px solid var(--beige-fonce);">
             <option value="true" ${doc.client_visible ? 'selected' : ''}>Visible client</option>
             <option value="false" ${!doc.client_visible ? 'selected' : ''}>Interne</option>
           </select>
-          <button class="app-btn app-btn-sm app-btn-danger" data-doc-delete="${doc.type}" title="Supprimer cette ligne">✕</button>
+          ${doc.storage_path
+            ? `<button class="app-btn app-btn-sm app-btn-danger" data-doc-delete-file="${doc.type}" title="Supprimer le fichier (archivé, tracé dans l'historique)">Supprimer le fichier</button>`
+            : `<button class="app-btn app-btn-sm app-btn-danger" data-doc-delete="${doc.type}" title="Retirer cette ligne de la liste">✕</button>`}
         </div>`;
     }
 
@@ -343,6 +427,8 @@
           </form>
         </div>
 
+        ${renderOverview()}
+
         ${dossier.client_type === 'school' ? `
         <div class="app-card" id="estimationCard">
           <h2>💶 Estimation du devis</h2>
@@ -352,11 +438,29 @@
 
         <div class="app-card">
           <h2>Partie financière</h2>
+          ${isSchool() ? `
+          <h3 style="margin-top:4px;">Devis officiel</h3>
+          <p style="font-size:.85rem;color:var(--texte-clair);margin-bottom:6px;">Ne pas confondre avec l'estimation ci-dessus : seul le devis officiel déposé (documents « Devis » / « Devis signé ») est validé ici.</p>
+          ${(() => {
+            const dv = documents.find(d => d.type === 'devis');
+            const ds = documents.find(d => d.type === 'devis_signe');
+            const st = bState('devis');
+            if (st.statut === 'validated') {
+              return `<div class="app-msg app-msg-success" style="margin-bottom:8px;">🟢 <strong>Devis validé</strong> 🔒<br/>Devis : ${esc(dv && dv.file_name ? dv.file_name : '—')}${ds && ds.file_name ? `<br/>Devis signé : ${esc(ds.file_name)}` : ''}<br/>Montant : ${formatMontant(dossier.montant_devis)}<br/>Validé le : ${formatDateTimeFr(st.admin_validated_at)}</div>`;
+            }
+            const warn = [];
+            if (!dv || !dv.file_name) warn.push('aucun fichier « Devis » déposé');
+            if (!ds || !ds.file_name) warn.push('aucun « Devis signé » reçu');
+            if (dossier.montant_devis == null) warn.push('montant du devis non renseigné');
+            return warn.length ? `<p style="font-size:.82rem;color:#a5650e;margin-bottom:6px;">⚠️ Avant validation : ${warn.join(', ')}.</p>` : '';
+          })()}
+          ${adminBlocSection('devis')}
+          <h3>Montants</h3>` : ''}
           <div id="msgFinance"></div>
           <form id="financeForm">
             <div class="app-grid-3">
-              <div class="app-field"><label>Montant devis (€)</label><input type="number" step="0.01" name="montant_devis" value="${dossier.montant_devis ?? ''}" /></div>
-              <div class="app-field"><label>Acompte attendu (€)</label><input type="number" step="0.01" name="acompte_attendu" value="${dossier.acompte_attendu ?? ''}" /></div>
+              <div class="app-field"><label>Montant devis (€)</label><input type="number" step="0.01" name="montant_devis" value="${dossier.montant_devis ?? ''}" ${ro('devis')} /></div>
+              <div class="app-field"><label>Acompte attendu (€)</label><input type="number" step="0.01" name="acompte_attendu" value="${dossier.acompte_attendu ?? ''}" ${ro('devis')} /></div>
               <div class="app-field"><label>Acompte reçu (€)</label><input type="number" step="0.01" name="acompte_recu" value="${dossier.acompte_recu ?? ''}" /></div>
             </div>
             <div class="app-grid-3">
@@ -443,21 +547,23 @@
           <div id="msgEffectifs"></div>
           <form id="effectifsForm">
             ${dossier.client_type === 'school' ? `
+            <h3 style="margin-top:4px;">Effectifs prévisionnels &amp; niveaux</h3>
+            ${adminBlocSection('effectifs')}
             <h3>Niveaux</h3>
             <div class="app-grid-3">
-              ${NIVEAUX.map(n => `<div class="app-field"><label>${n.label}</label><input type="number" min="0" name="niveau_${n.key}" value="${(dossier.niveaux && dossier.niveaux[n.key]) || 0}" /></div>`).join('')}
+              ${NIVEAUX.map(n => `<div class="app-field"><label>${n.label}</label><input type="number" min="0" name="niveau_${n.key}" value="${(dossier.niveaux && dossier.niveaux[n.key]) || 0}" ${ro('effectifs')} /></div>`).join('')}
             </div>
             <h3>Effectifs prévisionnels</h3>
             <div class="app-grid-3">
-              <div class="app-field"><label>Élèves</label><input type="number" min="0" name="effectif_prev_eleves" value="${dossier.effectif_prev_eleves ?? ''}" /></div>
-              <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_prev_profs" value="${dossier.effectif_prev_profs ?? ''}" /></div>
-              <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_prev_accompagnateurs" value="${dossier.effectif_prev_accompagnateurs ?? ''}" /></div>
+              <div class="app-field"><label>Élèves</label><input type="number" min="0" name="effectif_prev_eleves" value="${dossier.effectif_prev_eleves ?? ''}" ${ro('effectifs')} /></div>
+              <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_prev_profs" value="${dossier.effectif_prev_profs ?? ''}" ${ro('effectifs')} /></div>
+              <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_prev_accompagnateurs" value="${dossier.effectif_prev_accompagnateurs ?? ''}" ${ro('effectifs')} /></div>
             </div>
             <h3>Effectifs définitifs</h3>
             <div class="app-grid-3">
-              <div class="app-field"><label>Élèves</label><input type="number" min="0" name="effectif_def_eleves" value="${dossier.effectif_def_eleves ?? ''}" /></div>
-              <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_def_profs" value="${dossier.effectif_def_profs ?? ''}" /></div>
-              <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_def_accompagnateurs" value="${dossier.effectif_def_accompagnateurs ?? ''}" /></div>
+              <div class="app-field"><label>Élèves</label><input type="number" min="0" name="effectif_def_eleves" value="${dossier.effectif_def_eleves ?? ''}" ${ro('effectifs')} /></div>
+              <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_def_profs" value="${dossier.effectif_def_profs ?? ''}" ${ro('effectifs')} /></div>
+              <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_def_accompagnateurs" value="${dossier.effectif_def_accompagnateurs ?? ''}" ${ro('effectifs')} /></div>
             </div>` : `
             <h3>Effectifs</h3>
             <div class="app-grid-2">
@@ -465,19 +571,21 @@
               <div class="app-field"><label>Nombre d'enfants</label><input type="number" min="0" name="nb_enfants" value="${dossier.nb_enfants ?? ''}" /></div>
             </div>
             <div class="app-field"><label>Besoins particuliers (salle, matériel, allergies…)</label><textarea name="besoins_particuliers" rows="2">${esc(dossier.besoins_particuliers)}</textarea></div>
-            `}
             <div class="app-field"><label>Remarques alimentaires</label><textarea name="remarques_alimentaires" rows="2">${esc(dossier.remarques_alimentaires)}</textarea></div>
-            <button type="submit" class="app-btn">Enregistrer</button>
+            `}
+            ${bLocked('effectifs') ? '' : '<button type="submit" class="app-btn">Enregistrer</button>'}
           </form>
           <h3>Régimes alimentaires</h3>
+          ${adminBlocSection('regimes')}
           <form id="regimesForm">
             <div class="app-grid-3">
               ${REGIMES.map(r => {
                 const row = regimes.find(x => x.type === r.value);
-                return `<div class="app-field"><label>${r.label}</label><input type="number" min="0" name="regime_${r.value}" value="${row ? row.nombre : 0}" /></div>`;
+                return `<div class="app-field"><label>${r.label}</label><input type="number" min="0" name="regime_${r.value}" value="${row ? row.nombre : 0}" ${ro('regimes')} /></div>`;
               }).join('')}
             </div>
-            <button type="submit" class="app-btn">Enregistrer les régimes</button>
+            ${dossier.client_type === 'school' ? `<div class="app-field"><label>Remarques alimentaires / allergies</label><textarea name="remarques_alimentaires" rows="2" ${ro('regimes')}>${esc(dossier.remarques_alimentaires)}</textarea></div>` : ''}
+            ${bLocked('regimes') ? '' : '<button type="submit" class="app-btn">Enregistrer les régimes</button>'}
           </form>
         </div>` : ''}
 
@@ -498,7 +606,7 @@
               ${a.statut === 'desactive'
                 ? `<button class="app-btn app-btn-sm app-btn-outline" data-toggle-access="enable" data-user-id="${p?.id}">Réactiver</button>`
                 : `
-                  <button class="app-btn app-btn-sm app-btn-outline" data-resend-access="${esc(p?.email || '')}" data-name="${esc(p?.full_name || '')}">Renvoyer l'invitation</button>
+                  <button class="app-btn app-btn-sm app-btn-outline" data-resend-access="${esc(p?.email || '')}" data-name="${esc(p?.full_name || '')}">${a.statut === 'invitation_envoyee' ? 'Renvoyer les identifiants' : 'Renvoyer l’accès'}</button>
                   <button class="app-btn app-btn-sm app-btn-danger" data-toggle-access="disable" data-user-id="${p?.id}">Désactiver</button>
                 `}
             </div>`;
@@ -537,6 +645,14 @@
 
     function today() { return new Date().toISOString().slice(0, 10); }
     function showMsg(id, text, type='error') { const el = document.getElementById(id); if (el) el.innerHTML = `<div class="app-msg app-msg-${type}">${esc(text)}</div>`; }
+    // Message flottant : reste visible après le rechargement de la fiche.
+    function toast(text, type = 'error') {
+      const el = document.createElement('div');
+      el.className = `app-msg app-msg-${type} app-toast`;
+      el.textContent = text;
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 5000);
+    }
 
     function bindEvents() {
       document.getElementById('generalForm').addEventListener('submit', async (e) => {
@@ -565,6 +681,10 @@
           };
           const est = currentClassEstimate();
           if (est) payload.estimation_tarifaire = JSON.stringify(est);
+          // Coordonnées validées : on ne les renvoie pas (verrou en base, rouvrir d'abord).
+          if (bLocked('coordonnees')) {
+            ['etablissement', 'commune', 'code_postal', 'adresse', 'contact_nom', 'contact_telephone', 'contact_email'].forEach(k => delete payload[k]);
+          }
         } else if (dossier.client_type === 'group') {
           payload = {
             ...payload,
@@ -619,6 +739,7 @@
         if (dossier.client_type === 'group' && fd.has('estimation_montant')) {
           payload.estimation_montant = num(fd.get('estimation_montant'));
         }
+        if (bLocked('devis')) { delete payload.montant_devis; delete payload.acompte_attendu; }
         const { error } = await supabase.from('dossiers').update(payload).eq('id', dossierId);
         if (error) return showMsg('msgFinance', error.message);
         showMsg('msgFinance', 'Enregistré.', 'success');
@@ -702,17 +823,68 @@
         });
       });
 
+      // Ligne sans fichier : retrait de la liste (aucun fichier n'est détruit).
       document.querySelectorAll('[data-doc-delete]').forEach(btn => {
         btn.addEventListener('click', async () => {
-          if (!window.confirm('Supprimer cette ligne de document (et son éventuel fichier) ?')) return;
+          if (!window.confirm('Retirer cette ligne de la liste des documents ? (aucun fichier transmis n\'est concerné)')) return;
           const type = btn.dataset.docDelete;
-          const doc = documents.find(d => d.type === type);
-          if (doc && doc.storage_path) {
-            await supabase.storage.from('documents-dossiers').remove([doc.storage_path]);
-          }
           const { error } = await supabase.from('documents').delete().eq('dossier_id', dossierId).eq('type', type);
           if (error) return showMsg('msgDocs', error.message);
-          await supabase.from('dossier_journal').insert({ dossier_id: dossierId, action: 'document_supprime', details: 'Supprimé par l\'admin : ' + type, actor: session.user.id });
+          await supabase.from('dossier_journal').insert({ dossier_id: dossierId, action: 'document_supprime', details: 'Ligne retirée par l\'admin : ' + labelForDocumentType(type), actor: session.user.id });
+          await loadAll();
+        });
+      });
+
+      // Suppression d'un fichier transmis : réservée à l'Admin, LOGIQUE (le fichier
+      // reste dans le stockage privé, archivé dans l'historique du document).
+      document.querySelectorAll('[data-doc-delete-file]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const type = btn.dataset.docDeleteFile;
+          const doc = documents.find(d => d.type === type);
+          if (!window.confirm(`Supprimer le fichier « ${doc?.file_name || ''} » (${labelForDocumentType(type)}) ?\n\nLe fichier sera archivé (conservé dans l'historique, non détruit) et la suppression sera tracée.`)) return;
+          const { error } = await supabase.from('documents')
+            .update({ storage_path: null, file_name: null, statut: 'a_fournir', refus_motif: null })
+            .eq('dossier_id', dossierId).eq('type', type);
+          if (error) return showMsg('msgDocs', error.message);
+          toast('Fichier supprimé (archivé dans l\'historique).', 'success');
+          await loadAll();
+        });
+      });
+
+      document.querySelectorAll('[data-doc-reopen]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const type = btn.dataset.docReopen;
+          if (!window.confirm(`Rouvrir « ${labelForDocumentType(type)} » ?\n\nLe client pourra déposer une nouvelle version. La validation précédente reste dans l'historique.`)) return;
+          const { error } = await supabase.from('documents').update({ statut: 'recu', refus_motif: null }).eq('dossier_id', dossierId).eq('type', type);
+          if (error) return showMsg('msgDocs', error.message);
+          toast('Document rouvert.', 'success');
+          await loadAll();
+        });
+      });
+
+      document.querySelectorAll('[data-bloc-validate]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const bloc = btn.dataset.blocValidate;
+          if (bloc === 'devis' && !window.confirm('Valider le devis officiel ? Le devis et le devis signé ne pourront plus être remplacés sans réouverture.')) return;
+          btn.disabled = true;
+          const { error } = await supabase.rpc('bloc_validate_admin', { p_dossier_id: dossierId, p_bloc: bloc });
+          if (error) { btn.disabled = false; return toast(error.message); }
+          toast(`${blocLabel(bloc)} : validé(e)s et verrouillé(e)s.`, 'success');
+          await loadAll();
+        });
+      });
+
+      document.querySelectorAll('[data-bloc-reopen]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const bloc = btn.dataset.blocReopen;
+          const question = bloc === 'devis'
+            ? 'Rouvrir le devis validé ? Il pourra de nouveau être remplacé. La validation précédente reste dans l\'historique.'
+            : 'Autoriser le client à modifier de nouveau ces informations ?\n\nLa version validée actuelle et ses dates sont conservées dans l\'historique.';
+          if (!window.confirm(question)) return;
+          btn.disabled = true;
+          const { error } = await supabase.rpc('bloc_reopen_admin', { p_dossier_id: dossierId, p_bloc: bloc, p_message: null });
+          if (error) { btn.disabled = false; return toast(error.message); }
+          toast(`${blocLabel(bloc)} : rouvert(e)s pour modification.`, 'success');
           await loadAll();
         });
       });
@@ -773,7 +945,7 @@
         effectifsForm.addEventListener('submit', async (e) => {
           e.preventDefault();
           const fd = new FormData(e.target);
-          let payload = { remarques_alimentaires: fd.get('remarques_alimentaires') || null };
+          let payload = fd.has('remarques_alimentaires') ? { remarques_alimentaires: fd.get('remarques_alimentaires') || null } : {};
           if (dossier.client_type === 'school') {
             const niveaux = {};
             NIVEAUX.forEach(n => { niveaux[n.key] = Number(fd.get(`niveau_${n.key}`)) || 0; });
@@ -818,7 +990,13 @@
           try {
             for (const r of REGIMES) {
               const nombre = Number(fd.get(`regime_${r.value}`)) || 0;
+              const current = regimes.find(x => x.type === r.value);
+              if (current && current.nombre === nombre) continue;
               const { error } = await supabase.from('regimes_alimentaires').update({ nombre }).eq('dossier_id', dossierId).eq('type', r.value);
+              if (error) throw error;
+            }
+            if (fd.has('remarques_alimentaires')) {
+              const { error } = await supabase.from('dossiers').update({ remarques_alimentaires: fd.get('remarques_alimentaires') || null }).eq('id', dossierId);
               if (error) throw error;
             }
             showMsg('msgEffectifs', 'Régimes enregistrés.', 'success');
@@ -1087,7 +1265,7 @@
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error || 'Échec.');
-        showMsg('msgTeacher', json.emailSent ? 'E-mail envoyé avec succès.' : `Accès enregistré mais l'e-mail n'a pas pu être envoyé (${esc(json.emailError || '')}).`, json.emailSent ? 'success' : 'info');
+        showMsg('msgTeacher', json.emailSent ? (json.credentialsSent ? 'Identifiants envoyés par e-mail (mot de passe provisoire à changer à la première connexion).' : 'Dossier rattaché au compte existant, e-mail d’information envoyé (aucun nouveau mot de passe).') : `Accès enregistré mais l'e-mail n'a pas pu être envoyé (${esc(json.emailError || '')}).`, json.emailSent ? 'success' : 'info');
         await loadAll();
       } catch (error) {
         showMsg('msgTeacher', error.message);

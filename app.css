@@ -167,3 +167,33 @@ table.app-table a.row-link { color: var(--vert-fonce); font-weight: 700; }
   .app-accordion-body { padding: 4px 16px 16px; }
   .app-accordion-stats { gap: 10px 16px; width: 100%; }
 }
+
+/* ===== Validation par blocs (fiche Classe) ===== */
+.app-badge-blue { background:#e1ecf8; color:#1f4f86; }
+.app-bloc-status { border:1px solid var(--beige-fonce); border-left:4px solid #9a9a9a; border-radius: var(--radius-sm); padding:10px 14px; margin:6px 0 14px; background: var(--gris-clair); font-size:.88rem; }
+.app-bloc-status-client_confirmed { border-left-color:#2e6db4; }
+.app-bloc-status-validated { border-left-color: var(--vert-fonce); }
+.app-bloc-status-reopened { border-left-color:#d68910; }
+.app-bloc-status-head { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.app-bloc-version { font-size:.75rem; color: var(--texte-clair); }
+.app-bloc-status-dates { margin-top:6px; line-height:1.6; }
+.app-bloc-status-note { margin-top:6px; color: var(--texte-clair); font-style: italic; }
+.app-bloc-actions { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 4px; }
+.app-bloc-history { margin:8px 0 4px; font-size:.86rem; }
+.app-bloc-history > summary { cursor:pointer; color: var(--vert-fonce); font-weight:700; }
+.app-bloc-history-body { margin-top:8px; padding:10px 12px; background: var(--blanc); border:1px solid var(--beige-fonce); border-radius: var(--radius-sm); }
+.app-bloc-history-heading { font-weight:700; color: var(--brun); margin-bottom:6px; text-transform: uppercase; font-size:.78rem; letter-spacing:.04em; }
+.app-bloc-history-version { margin-bottom:10px; }
+.app-bloc-history-title { font-weight:700; }
+.app-bloc-history-old { font-weight:400; color: var(--texte-clair); }
+.app-bloc-history ul { margin:4px 0 0 0; padding-left:18px; }
+.app-bloc-history li { margin:2px 0; }
+.app-bloc-history-date { color: var(--texte-clair); font-variant-numeric: tabular-nums; margin-right:4px; }
+.app-bloc-history-empty { color: var(--texte-clair); margin-top:6px; }
+.app-doc-dates { display:block; font-size:.75rem; color: var(--texte-clair); font-weight:400; margin-top:2px; }
+.app-overview-row { display:flex; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid var(--beige-fonce); flex-wrap:wrap; }
+.app-overview-row:last-child { border-bottom:none; }
+.app-overview-name { font-weight:700; color: var(--brun); text-transform: uppercase; font-size:.82rem; letter-spacing:.04em; min-width:170px; }
+.app-overview-val { flex:1; min-width:200px; font-size:.9rem; }
+.app-field input[readonly], .app-field textarea[readonly] { background: var(--gris-clair); color: var(--texte-clair); cursor: not-allowed; }
+.app-toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 1000; max-width: min(560px, calc(100vw - 32px)); box-shadow: var(--ombre-forte); }

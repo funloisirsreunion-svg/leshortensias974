@@ -1,17 +1,22 @@
+import { randomInt } from 'node:crypto';
 import { Resend } from 'resend';
 import { getSupabaseAdmin } from '../../lib/supabaseAdmin.js';
 import { requireAdmin } from '../../lib/requireAdmin.js';
 import {
-  buildInviteSubject, buildInviteHtml,
   buildNewDossierLinkedSubject, buildNewDossierLinkedHtml,
-  buildResendInviteSubject, buildResendInviteHtml,
+  buildCredentialsSubject, buildCredentialsHtml,
 } from '../../lib/teacherInviteEmail.js';
 
-// Crée (ou raccroche) un accès enseignant pour un dossier donné.
-// Jamais de mot de passe en clair envoyé par e-mail : toujours un lien
-// d'invitation sécurisé (Supabase generateLink) ou un simple lien de connexion
-// si le compte existe déjà et est actif. Un même e-mail n'est jamais dupliqué :
-// un compte existant est simplement rattaché au nouveau dossier (dossier_acces).
+// Crée (ou raccroche) un accès client pour un dossier donné.
+// Nouveau compte : compte Supabase Auth (identifiant = e-mail) + mot de passe
+// provisoire aléatoire envoyé par e-mail, à remplacer obligatoirement à la
+// première connexion (profiles.must_change_password, appliqué en RLS). Le mot
+// de passe n'est jamais stocké dans les tables applicatives.
+// Compte existant et activé : AUCUN nouveau mot de passe, le dossier est
+// simplement rattaché (dossier_acces) et le client prévenu.
+// Compte existant jamais activé (mot de passe provisoire jamais remplacé) :
+// nouveau mot de passe provisoire (l'ancien devient inutilisable).
+// Un même e-mail n'est jamais dupliqué.
 
 function isValidEmail(email) {
   return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -21,13 +26,19 @@ function siteUrl() {
   return process.env.SITE_URL || 'https://leshortensias974.fr';
 }
 
-// On construit nous-mêmes le lien vers reinitialiser-mot-de-passe.html (token_hash + type)
-// plutôt que d'utiliser action_link (qui redirige via l'endpoint de vérification Supabase,
-// dépendant du "Site URL" / "Redirect URLs" configurés dans le dashboard Supabase — non
-// configuré sur un projet fraîchement provisionné, ce qui renvoyait vers localhost:3000).
-// La page appelle ensuite supabase.auth.verifyOtp({ token_hash, type }) côté client.
-function buildOwnLink(hashedToken, type) {
-  return `${siteUrl()}/reinitialiser-mot-de-passe.html?token_hash=${encodeURIComponent(hashedToken)}&type=${type}`;
+// Mot de passe provisoire : 12 caractères tirés avec un générateur cryptographique,
+// sans caractères ambigus (0/O, 1/l/I), avec au moins une majuscule, une minuscule,
+// un chiffre et un symbole simple.
+export function generateTemporaryPassword() {
+  const sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnpqrstuvwxyz', '23456789', '-_!?'];
+  const all = sets.join('');
+  const chars = sets.map((set) => set[randomInt(set.length)]);
+  while (chars.length < 12) chars.push(all[randomInt(all.length)]);
+  for (let i = chars.length - 1; i > 0; i -= 1) {
+    const j = randomInt(i + 1);
+    [chars[i], chars[j]] = [chars[j], chars[i]];
+  }
+  return chars.join('');
 }
 
 async function findUserByEmail(supabaseAdmin, email) {
@@ -94,36 +105,57 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Échec de la recherche du compte : ' + error.message });
   }
 
+  let existingProfile = null;
   if (existingUser) {
-    const { data: existingProfile } = await supabaseAdmin
-      .from('profiles').select('role, full_name').eq('id', existingUser.id).maybeSingle();
+    const { data } = await supabaseAdmin
+      .from('profiles').select('role, full_name, must_change_password').eq('id', existingUser.id).maybeSingle();
+    existingProfile = data;
     if (existingProfile && existingProfile.role === 'admin') {
       return res.status(409).json({ error: 'Cette adresse e-mail est déjà utilisée par un compte administrateur.' });
     }
   }
 
-  let userId, isNewAccount, actionLink = null;
-  const redirectTo = siteUrl() + '/reinitialiser-mot-de-passe.html';
+  // Un compte existant n'est "activé" que si le client s'est déjà connecté ET a
+  // remplacé son mot de passe provisoire.
+  const existingActivated = !!(existingUser && existingUser.last_sign_in_at
+    && !(existingProfile && existingProfile.must_change_password));
+  const displayName = fullName || (existingProfile && existingProfile.full_name) || null;
+
+  let userId, isNewAccount, temporaryPassword = null;
 
   if (existingUser) {
     userId = existingUser.id;
     isNewAccount = false;
     const { error: profileError } = await supabaseAdmin.from('profiles').upsert({
-      id: userId, role: 'client', full_name: fullName || null, email: normalizedEmail,
+      id: userId, role: 'client', full_name: displayName, email: normalizedEmail,
     });
     if (profileError) return res.status(500).json({ error: 'Échec de mise à jour du profil : ' + profileError.message });
+
+    if (!existingActivated) {
+      temporaryPassword = generateTemporaryPassword();
+      const { error: pwdError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+        password: temporaryPassword, email_confirm: true,
+      });
+      if (pwdError) return res.status(500).json({ error: 'Échec de la génération du mot de passe provisoire : ' + pwdError.message });
+      // APRÈS le changement de mot de passe : le trigger Auth lève le drapeau à
+      // chaque changement, il doit donc être reposé ensuite.
+      const { error: flagError } = await supabaseAdmin.from('profiles')
+        .update({ must_change_password: true, password_changed_at: null }).eq('id', userId);
+      if (flagError) return res.status(500).json({ error: 'Échec de l\'activation du changement obligatoire : ' + flagError.message });
+    }
   } else {
-    const { data: generated, error: genError } = await supabaseAdmin.auth.admin.generateLink({
-      type: 'invite',
+    temporaryPassword = generateTemporaryPassword();
+    const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email: normalizedEmail,
-      options: { redirectTo, data: { full_name: fullName || null } },
+      password: temporaryPassword,
+      email_confirm: true,
+      user_metadata: { full_name: fullName || null },
     });
-    if (genError) return res.status(500).json({ error: 'Échec de la génération du lien d\'invitation : ' + genError.message });
-    userId = generated.user.id;
-    actionLink = buildOwnLink(generated.properties.hashed_token, 'invite');
+    if (createError) return res.status(500).json({ error: 'Échec de la création du compte : ' + createError.message });
+    userId = created.user.id;
     isNewAccount = true;
     const { error: profileError } = await supabaseAdmin.from('profiles').upsert({
-      id: userId, role: 'client', full_name: fullName || null, email: normalizedEmail,
+      id: userId, role: 'client', full_name: fullName || null, email: normalizedEmail, must_change_password: true,
     });
     if (profileError) return res.status(500).json({ error: 'Compte créé mais échec de la création du profil : ' + profileError.message });
   }
@@ -155,45 +187,29 @@ export default async function handler(req, res) {
   const { data: existingAccess } = await supabaseAdmin
     .from('dossier_acces').select('*').eq('dossier_id', dossierId).eq('profile_id', userId).maybeSingle();
 
-  let accessRow = existingAccess;
-  let alreadyLinked = !!existingAccess;
+  const alreadyLinked = !!existingAccess;
   if (!existingAccess) {
-    const initialStatut = (!isNewAccount && existingUser.last_sign_in_at) ? 'compte_active' : 'invitation_envoyee';
-    const { data: inserted, error: insErr } = await supabaseAdmin.from('dossier_acces').insert({
+    const initialStatut = existingActivated ? 'compte_active' : 'invitation_envoyee';
+    const { error: insErr } = await supabaseAdmin.from('dossier_acces').insert({
       dossier_id: dossierId,
       profile_id: userId,
       statut: initialStatut,
       activated_at: initialStatut === 'compte_active' ? new Date().toISOString() : null,
-    }).select().single();
+    });
     if (insErr) return res.status(500).json({ error: 'Échec de l\'association au dossier : ' + insErr.message });
-    accessRow = inserted;
   }
 
-  // Détermine l'e-mail à envoyer selon le cas de figure.
-  // Important : Supabase refuse de régénérer un lien type 'invite' pour un compte
-  // qui existe déjà (même non confirmé) — "already registered". Pour relancer un
-  // compte existant qui ne s'est encore jamais connecté, il faut utiliser le type
-  // 'recovery' (fonctionne pour un compte confirmé ou non, et confirme l'e-mail
-  // au passage si ce n'était pas déjà fait).
+  // E-mail : identifiants provisoires (nouveau compte ou compte jamais activé),
+  // sinon simple information "nouveau dossier ajouté" (aucun mot de passe).
+  const loginUrl = siteUrl() + '/espace-client/';
   let subject, html;
-  if (actionLink) {
-    // Compte tout juste créé.
-    subject = buildInviteSubject();
-    html = buildInviteHtml({ dossier, actionLink });
-  } else if (!existingUser.last_sign_in_at) {
-    // Compte existant mais jamais activé (première invitation restée sans suite) : on relance.
-    const { data: relink, error: relinkError } = await supabaseAdmin.auth.admin.generateLink({
-      type: 'recovery', email: normalizedEmail, options: { redirectTo },
-    });
-    if (relinkError) {
-      return res.status(500).json({ error: 'Échec de la régénération du lien d\'accès : ' + relinkError.message });
-    }
-    subject = buildResendInviteSubject();
-    html = buildResendInviteHtml({ dossier, actionLink: buildOwnLink(relink.properties.hashed_token, 'recovery') });
+  if (temporaryPassword) {
+    const name = displayName || [dossier.contact_prenom, dossier.contact_nom].filter(Boolean).join(' ') || null;
+    subject = buildCredentialsSubject();
+    html = buildCredentialsHtml({ name, email: normalizedEmail, temporaryPassword, loginUrl, dossier });
   } else {
-    // Compte déjà actif : simple rattachement à un nouveau dossier (ou rappel d'accès).
     subject = buildNewDossierLinkedSubject(dossier);
-    html = buildNewDossierLinkedHtml({ dossier, loginUrl: siteUrl() + '/espace-client/' });
+    html = buildNewDossierLinkedHtml({ dossier, loginUrl });
   }
 
   const mailResult = await sendMail({ to: normalizedEmail, subject, html });
@@ -202,6 +218,7 @@ export default async function handler(req, res) {
     ok: true,
     isNewAccount,
     alreadyLinked,
+    credentialsSent: !!temporaryPassword && mailResult.sent,
     emailSent: mailResult.sent,
     emailError: mailResult.error,
   });

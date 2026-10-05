@@ -62,6 +62,8 @@
       const { data: profile, error: pErr } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
       if (pErr || !profile) { panelRoot.innerHTML = `<div class="app-msg app-msg-error">Profil introuvable. Contactez l'administrateur.</div>`; return; }
       if (profile.role === 'admin') { window.location.href = '../admin/dashboard.html'; return; }
+      // Mot de passe provisoire pas encore remplacé : changement obligatoire d'abord.
+      if (profile.must_change_password) { window.location.href = 'index.html'; return; }
       document.getElementById('userLabel').textContent = profile.full_name || profile.email || '';
 
       if (profile.email !== session.user.email) {
