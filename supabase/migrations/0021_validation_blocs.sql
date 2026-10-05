@@ -335,7 +335,7 @@ begin
   update public.notifications set lu = true
    where audience = 'admin' and dossier_id = p_dossier_id and lu = false
      and type in ('bloc_confirme', 'regimes_modifies', 'modification_demandee')
-     and message like '%' || public.bloc_label(p_bloc) || '%';
+     and message like '%' || public.bloc_label(p_bloc) || '%'; -- corrigé en 0022
 
   return v_row;
 end;
