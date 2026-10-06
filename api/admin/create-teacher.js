@@ -1,7 +1,7 @@
 import { randomInt } from 'node:crypto';
 import { Resend } from 'resend';
 import { getSupabaseAdmin } from '../../lib/supabaseAdmin.js';
-import { requireAdmin } from '../../lib/requireAdmin.js';
+import { requirePermission, hasPermission } from '../../lib/requireAdmin.js';
 import {
   buildNewDossierLinkedSubject, buildNewDossierLinkedHtml,
   buildCredentialsSubject, buildCredentialsHtml,
@@ -76,8 +76,9 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Méthode non autorisée.' });
   }
 
+  let auth;
   try {
-    await requireAdmin(req);
+    auth = await requirePermission(req, 'clients.invite');
   } catch (error) {
     return res.status(error.status || 401).json({ error: error.message });
   }
@@ -96,6 +97,9 @@ export default async function handler(req, res) {
     .from('dossiers').select('*').eq('id', dossierId).single();
   if (dossierError || !dossier) {
     return res.status(404).json({ error: 'Dossier introuvable.' });
+  }
+  if (dossier.client_type === 'colony' && !hasPermission(auth, 'colonies.manage')) {
+    return res.status(403).json({ error: 'Votre rôle ne permet pas d\'accéder aux dossiers Colonies.' });
   }
 
   let existingUser;
@@ -195,6 +199,7 @@ export default async function handler(req, res) {
       profile_id: userId,
       statut: initialStatut,
       activated_at: initialStatut === 'compte_active' ? new Date().toISOString() : null,
+      last_actor: auth.user.id,
     });
     if (insErr) return res.status(500).json({ error: 'Échec de l\'association au dossier : ' + insErr.message });
   }
@@ -213,6 +218,14 @@ export default async function handler(req, res) {
   }
 
   const mailResult = await sendMail({ to: normalizedEmail, subject, html });
+
+  // Accès déjà existant : le renvoi est tracé avec son auteur (la création, elle,
+  // l'est par le trigger de dossier_acces via last_actor).
+  if (alreadyLinked && mailResult.sent) {
+    await supabaseAdmin.from('dossier_journal').insert({
+      dossier_id: dossierId, action: 'invitation_envoyee', details: 'Accès renvoyé à ' + normalizedEmail, actor: auth.user.id,
+    });
+  }
 
   return res.status(201).json({
     ok: true,

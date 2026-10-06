@@ -31,7 +31,6 @@
     <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
     <div class="app-user">
       <a href="dashboard.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Tableau de bord</a>
-      <a href="planning.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">📅 Planning</a>
       <button class="app-logout" id="logoutBtn">Déconnexion</button>
     </div>
   </div>
@@ -42,6 +41,7 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
+    import { loadStaffContext, mountAdminNav, requirePagePermission } from '../lib/adminNav.js';
     import { slugify } from '../lib/slugify.js';
     import {
       COLONY_STAY_STATUTS, COLONY_REGISTRATION_STATUTS, ALL_DOCUMENT_TYPES, DOCUMENT_SOURCES, DOC_STATUTS,
@@ -79,6 +79,9 @@
 
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
       if (!profile || profile.role !== 'admin') { await supabase.auth.signOut(); window.location.href = 'index.html'; return; }
+      const staff = await loadStaffContext(supabase);
+      if (!requirePagePermission(staff, ['colonies.read'])) return;
+      mountAdminNav(staff, 'colonies');
 
       if (isNew) { renderNewStayForm(); return; }
       if (!stayId) { root.innerHTML = `<div class="app-msg app-msg-error">Séjour non spécifié.</div>`; return; }

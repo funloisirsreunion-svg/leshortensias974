@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from '../../lib/supabaseAdmin.js';
-import { requireAdmin } from '../../lib/requireAdmin.js';
+import { requirePermission } from '../../lib/requireAdmin.js';
 
 // Désactive/réactive l'accès d'un enseignant à un dossier précis. Double
 // verrou : bannissement Supabase Auth (bloque toute connexion) + statut
@@ -10,8 +10,9 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Méthode non autorisée.' });
   }
+  let auth;
   try {
-    await requireAdmin(req);
+    auth = await requirePermission(req, 'clients.edit');
   } catch (error) {
     return res.status(error.status || 401).json({ error: error.message });
   }
@@ -32,7 +33,7 @@ export default async function handler(req, res) {
   if (action === 'disable') {
     const { error: banError } = await supabaseAdmin.auth.admin.updateUserById(userId, { ban_duration: '87600h' });
     if (banError) return res.status(500).json({ error: 'Échec du blocage du compte : ' + banError.message });
-    const { error: updError } = await supabaseAdmin.from('dossier_acces').update({ statut: 'desactive' }).eq('id', access.id);
+    const { error: updError } = await supabaseAdmin.from('dossier_acces').update({ statut: 'desactive', last_actor: auth.user.id }).eq('id', access.id);
     if (updError) return res.status(500).json({ error: updError.message });
     return res.status(200).json({ ok: true, statut: 'desactive' });
   }
@@ -45,7 +46,7 @@ export default async function handler(req, res) {
   if (unbanError) return res.status(500).json({ error: 'Échec de la réactivation du compte : ' + unbanError.message });
 
   const newStatut = userData.user.last_sign_in_at ? 'compte_active' : 'invitation_envoyee';
-  const { error: updError } = await supabaseAdmin.from('dossier_acces').update({ statut: newStatut }).eq('id', access.id);
+  const { error: updError } = await supabaseAdmin.from('dossier_acces').update({ statut: newStatut, last_actor: auth.user.id }).eq('id', access.id);
   if (updError) return res.status(500).json({ error: updError.message });
 
   return res.status(200).json({ ok: true, statut: newStatut });

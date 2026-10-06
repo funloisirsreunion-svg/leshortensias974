@@ -18,10 +18,7 @@
     <div class="app-user">
       <span id="userLabel"></span>
       <button class="app-logout" id="notifBtn">🔔 Notifications <span id="notifBadge"></span></button>
-      <a href="nouveau-dossier.html" class="app-btn app-btn-sm">+ Nouveau dossier</a>
-      <a href="planning.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">📅 Planning</a>
-      <a href="client.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">👥 Clients</a>
-      <a href="parametres.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">⚙️ Paramètres</a>
+      <a href="nouveau-dossier.html" class="app-btn app-btn-sm" data-perm="classes.create|groups.create">+ Nouveau dossier</a>
       <button class="app-logout" id="logoutBtn">Déconnexion</button>
     </div>
   </div>
@@ -37,10 +34,19 @@
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
     import { STATUTS, CLIENT_TYPES, COLONY_STAY_STATUTS, JOURNAL_LABELS, labelOf, formatDateFr, formatMontant, docCompleteness } from '../lib/appConstants.js';
+    import { loadStaffContext, mountAdminNav } from '../lib/adminNav.js';
+    import { VALIDATED_DOSSIER_STATUTS } from '../lib/planning.js';
 
     const root = document.getElementById('appRoot');
     let supabase, dossiers = [], documentsByDossier = {}, activeFilter = null, typeFilter = null, archiveFilter = 'active', searchTerm = '', notifications = [], recentActivity = [];
     let colonyStays = [], colonyRegsByStay = {}, colonyArchiveFilter = 'active';
+    let staff = null;
+    // Liens du menu : ?type=school|group, ?filtre=<indicateur>
+    {
+      const p = new URLSearchParams(location.search);
+      if (['school', 'group'].includes(p.get('type'))) typeFilter = p.get('type');
+      if (p.get('filtre')) activeFilter = p.get('filtre');
+    }
 
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -60,6 +66,9 @@
       }
 
       supabase.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') window.location.href = 'index.html'; });
+
+      staff = await loadStaffContext(supabase);
+      mountAdminNav(staff, typeFilter === 'school' ? 'classes' : typeFilter === 'group' ? 'groupes' : activeFilter === 'nouvelles' ? 'demandes' : 'dashboard');
 
       await loadAll();
     }
@@ -84,12 +93,14 @@
       const { data: journal } = await supabase.from('dossier_journal').select('*, dossiers(numero, etablissement)').order('created_at', { ascending: false }).limit(15);
       recentActivity = journal || [];
 
-      const { data: stays } = await supabase.from('colony_stays').select('*').order('date_debut', { ascending: true, nullsFirst: false });
-      colonyStays = stays || [];
+      colonyStays = []; colonyRegsByStay = {};
+      if (staff.can('colonies.read')) {
+        const { data: stays } = await supabase.from('colony_stays').select('*').order('date_debut', { ascending: true, nullsFirst: false });
+        colonyStays = stays || [];
 
-      const { data: regs } = await supabase.from('colony_registrations').select('stay_id, statut, montant_du, montant_paye');
-      colonyRegsByStay = {};
-      (regs || []).forEach(r => { (colonyRegsByStay[r.stay_id] = colonyRegsByStay[r.stay_id] || []).push(r); });
+        const { data: regs } = await supabase.from('colony_registrations').select('stay_id, statut, montant_du, montant_paye');
+        (regs || []).forEach(r => { (colonyRegsByStay[r.stay_id] = colonyRegsByStay[r.stay_id] || []).push(r); });
+      }
 
       render();
     }
@@ -190,8 +201,48 @@
         case 'acomptes_manquants': return d.acompte_attendu && (!d.acompte_recu || Number(d.acompte_recu) < Number(d.acompte_attendu));
         case 'incomplets': return d.statut === 'dossier_incomplet';
         case 'soldes': return d.statut === 'solde_attendu' || (d.montant_facture && Number(d.montant_paye || 0) < Number(d.montant_facture));
+        // Indicateurs du suivi commercial
+        case 'nouvelles': return d.statut === 'demande_recue';
+        case 'a_traiter': return ['demande_validee', 'etude', 'date_proposee', 'date_validee'].includes(d.statut);
+        case 'devis_attente': return ['devis_envoye', 'devis_accepte', 'acompte_attendu'].includes(d.statut);
+        case 'validees': return VALIDATED_DOSSIER_STATUTS.includes(d.statut);
+        case 'sejours_a_venir': return VALIDATED_DOSSIER_STATUTS.includes(d.statut) && !!d.date_confirmee_debut && d.date_confirmee_debut >= t;
+        case 'action': return needsAction(d);
         default: return true;
       }
+    }
+
+    // Dossier nécessitant une action : document à vérifier, ou réservation validée
+    // sans dates confirmées (invisible du planning tant qu'elle n'est pas corrigée).
+    function needsAction(d) {
+      if (['refusee', 'annule', 'cloture', 'archivee'].includes(d.statut)) return false;
+      const docs = documentsByDossier[d.id] || [];
+      if (docs.some(doc => doc.statut === 'a_verifier' || doc.statut === 'recu')) return true;
+      return VALIDATED_DOSSIER_STATUTS.includes(d.statut) && (!d.date_confirmee_debut || !d.date_confirmee_fin);
+    }
+
+    const COMMERCIAL_KPIS = [
+      ['nouvelles', 'Nouvelles demandes'],
+      ['a_traiter', 'Demandes à traiter'],
+      ['devis_attente', 'Devis en attente'],
+      ['validees', 'Réservations validées'],
+      ['sejours_a_venir', 'Séjours à venir'],
+      ['action', 'Dossiers nécessitant une action'],
+    ];
+
+    function renderKpis() {
+      const actifs = dossiers.filter(d => !d.archived_at && (!typeFilter || d.client_type === typeFilter));
+      return `
+        <div class="app-card">
+          <h2>Suivi commercial${typeFilter ? ' — ' + esc((CLIENT_TYPES.find(t => t.value === typeFilter) || {}).label || '') : ''}</h2>
+          <div class="app-kpi-grid">
+            ${COMMERCIAL_KPIS.map(([key, label]) => `
+              <button type="button" class="app-kpi app-kpi-btn ${activeFilter === key ? 'active' : ''}" data-kpi="${key}">
+                <div class="app-kpi-num">${actifs.filter(d => matchesFilter(d, key)).length}</div>
+                <div class="app-kpi-label">${label}</div>
+              </button>`).join('')}
+          </div>
+        </div>`;
     }
 
     function matchesSearch(d, term) {
@@ -254,6 +305,7 @@
       const demandes = nouvellesDemandes();
 
       root.innerHTML = `
+        ${renderKpis()}
         ${demandes.length > 0 ? `
         <div class="app-card">
           <h2>${demandes.length} nouvelle${demandes.length > 1 ? 's' : ''} demande${demandes.length > 1 ? 's' : ''} à traiter</h2>
@@ -276,7 +328,7 @@
               <li>
                 <span class="app-todo-dot"></span>
                 ${a.dossiers ? `<a href="dossier.html?id=${a.dossier_id}" style="color:var(--vert-fonce);font-weight:700;">${esc(a.dossiers.etablissement)}</a> — ` : ''}
-                ${esc(JOURNAL_LABELS[a.action] || a.action)}${a.details ? ' : ' + esc(a.details) : ''}
+                ${esc(JOURNAL_LABELS[a.action] || a.action)}${a.actor_name ? ' <strong>par ' + esc(a.actor_name) + '</strong>' : ''}${a.details ? ' : ' + esc(a.details) : ''}
                 <span style="color:var(--texte-clair);font-size:.78rem;"> — ${new Date(a.created_at).toLocaleString('fr-FR')}</span>
               </li>`).join('') || '<li>Aucune activité récente.</li>'}
           </ul>
@@ -293,7 +345,7 @@
           </ul>
         </div>` : ''}
 
-        <div class="app-card">
+        ${staff.can('colonies.read') ? `<div class="app-card" id="colonies">
           <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;">
             <h2 style="margin:0;">🏕️ Colonies — séjours</h2>
             <a href="colonie.html?new=1" class="app-btn app-btn-sm">+ Nouveau séjour Colonie</a>
@@ -333,7 +385,7 @@
               </tbody>
             </table>
           </div>
-        </div>
+        </div>` : ''}
 
         <div class="app-card">
           <h2>🏫 Classes découvertes & 👥 Groupes indépendants</h2>
@@ -350,7 +402,7 @@
             ${CLIENT_TYPES.filter(t => t.value !== 'colony').map(t => `<span class="app-chip ${typeFilter === t.value ? 'active' : ''}" data-type-filter="${t.value}">${t.badge} ${t.label}</span>`).join('')}
           </div>
           <div class="app-filters" id="chipFilters">
-            ${['a_venir', 'en_cours', 'passes', 'annules', 'acomptes_manquants', 'incomplets', 'soldes'].map(f => `
+            ${['a_venir', 'en_cours', 'passes', 'annules', 'acomptes_manquants', 'incomplets', 'soldes', ...COMMERCIAL_KPIS.map(k => k[0])].map(f => `
               <span class="app-chip ${activeFilter === f ? 'active' : ''}" data-filter="${f}">${chipLabel(f)}</span>
             `).join('')}
             ${activeFilter ? `<span class="app-chip" data-filter="">✕ Effacer</span>` : ''}
@@ -393,6 +445,9 @@
       `;
 
       document.getElementById('searchInput').addEventListener('input', (e) => { searchTerm = e.target.value; render(); });
+      document.querySelectorAll('[data-kpi]').forEach(btn => {
+        btn.addEventListener('click', () => { activeFilter = activeFilter === btn.dataset.kpi ? null : btn.dataset.kpi; render(); });
+      });
       document.querySelectorAll('#chipFilters .app-chip').forEach(chip => {
         chip.addEventListener('click', () => { activeFilter = chip.dataset.filter || null; render(); });
       });
@@ -432,6 +487,7 @@
       return {
         a_venir: 'À venir', en_cours: 'En cours', passes: 'Passés', annules: 'Annulés',
         acomptes_manquants: 'Acomptes manquants', incomplets: 'Dossiers incomplets', soldes: 'Soldes en attente',
+        ...Object.fromEntries(COMMERCIAL_KPIS),
       }[f];
     }
 

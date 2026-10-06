@@ -16,17 +16,30 @@
     <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
     <div class="app-user">
       <a href="dashboard.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Tableau de bord</a>
-      <a href="planning.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">📅 Planning</a>
       <button class="app-logout" id="logoutBtn">Déconnexion</button>
     </div>
   </div>
 
-  <div class="app-container" style="max-width:640px;">
+  <div class="app-container" style="max-width:900px;">
     <h1 style="font-size:1.5rem;color:var(--vert-fonce);margin-bottom:20px;">Paramètres du compte</h1>
 
     <div class="app-card">
       <h2>Informations du compte</h2>
       <div id="infoBox" class="app-loading">Chargement…</div>
+    </div>
+
+    <div class="app-card" id="staffCard" hidden>
+      <h2>Utilisateurs internes</h2>
+      <div id="msgStaff"></div>
+      <div id="staffList" class="app-loading">Chargement…</div>
+      <h3>Inviter un membre de l'équipe</h3>
+      <p style="font-size:.85rem;color:var(--texte-clair);margin-bottom:12px;">La personne reçoit un e-mail « Votre accès Les Hortensias est disponible » et choisit elle-même son mot de passe. Une adresse déjà utilisée n'est jamais dupliquée.</p>
+      <form id="inviteForm" class="app-grid-3" style="align-items:end;">
+        <div class="app-field" style="margin:0;"><label>Nom affiché</label><input type="text" id="inviteName" required /></div>
+        <div class="app-field" style="margin:0;"><label>E-mail</label><input type="email" id="inviteEmail" required /></div>
+        <div class="app-field" style="margin:0;"><label>Rôle</label><select id="inviteRole"></select></div>
+        <button type="submit" class="app-btn app-btn-sm" style="grid-column:1/-1;justify-self:start;">Envoyer l'invitation</button>
+      </form>
     </div>
 
     <div class="app-card">
@@ -64,6 +77,7 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
+    import { loadStaffContext, mountAdminNav } from '../lib/adminNav.js';
 
     let supabase;
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -75,9 +89,97 @@
       if (!session) { window.location.href = 'index.html'; return; }
       const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
       if (!profile || profile.role !== 'admin') { await supabase.auth.signOut(); window.location.href = 'index.html'; return; }
+      const staff = await loadStaffContext(supabase);
+      mountAdminNav(staff, 'parametres');
 
       await loadInfo(session);
+      if (staff.can('users.manage')) {
+        document.getElementById('staffCard').hidden = false;
+        await loadStaff();
+      }
     }
+
+    // ---------- Utilisateurs internes (Super Admin : users.manage) ----------
+    let staffRoles = [];
+    async function staffApi(method, body) {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/admin/me?scope=staff', {
+        method,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Échec.');
+      return json;
+    }
+
+    async function loadStaff() {
+      const box = document.getElementById('staffList');
+      try {
+        const { users, roles } = await staffApi('GET');
+        staffRoles = roles;
+        document.getElementById('inviteRole').innerHTML = roles.map(r => `<option value="${r.code}" ${r.code === 'commercial_reservations' ? 'selected' : ''}>${esc(r.label)}</option>`).join('');
+        const { data: { session } } = await supabase.auth.getSession();
+        box.className = 'app-table-wrap';
+        box.innerHTML = `<table class="app-table" style="min-width:760px;"><thead><tr><th>Nom</th><th>E-mail</th><th>Rôle</th><th>Statut</th><th>Dernière connexion</th><th></th></tr></thead><tbody>
+          ${users.map(u => {
+            const self = u.id === session.user.id;
+            const statut = !u.staff_active ? '<span class="app-badge app-badge-red">⛔ Désactivé</span>'
+              : u.pending_invite ? '<span class="app-badge app-badge-orange">✉️ Invitation envoyée</span>'
+              : '<span class="app-badge app-badge-green">🟢 Actif</span>';
+            return `<tr>
+              <td><strong>${esc(u.full_name || '—')}</strong>${self ? ' <span style="font-size:.75rem;color:var(--texte-clair);">(vous)</span>' : ''}</td>
+              <td>${esc(u.email || '')}</td>
+              <td>${self ? esc((roles.find(r => r.code === u.staff_role) || {}).label || u.staff_role || '—')
+                : `<select data-role-for="${u.id}" style="padding:6px;border-radius:6px;border:1px solid var(--beige-fonce);">${roles.map(r => `<option value="${r.code}" ${r.code === u.staff_role ? 'selected' : ''}>${esc(r.label)}</option>`).join('')}</select>`}</td>
+              <td>${statut}</td>
+              <td>${u.last_sign_in_at ? new Date(u.last_sign_in_at).toLocaleString('fr-FR', { timeZone: 'Indian/Reunion' }) : '—'}</td>
+              <td style="white-space:nowrap;">${self ? '' : `
+                ${u.staff_active ? `<button class="app-btn app-btn-sm app-btn-outline" data-staff-action="deactivate" data-user="${u.id}">Désactiver</button>` : `<button class="app-btn app-btn-sm" data-staff-action="reactivate" data-user="${u.id}">Réactiver</button>`}
+                ${u.staff_active && u.pending_invite ? `<button class="app-btn app-btn-sm app-btn-outline" data-staff-action="resend" data-user="${u.id}">Renvoyer l'invitation</button>` : ''}`}</td>
+            </tr>`;
+          }).join('')}
+        </tbody></table>`;
+        box.querySelectorAll('[data-role-for]').forEach(sel => sel.addEventListener('change', async () => {
+          try { await staffApi('POST', { action: 'set_role', userId: sel.dataset.roleFor, role: sel.value }); showMsg('msgStaff', 'Rôle mis à jour.', 'success'); }
+          catch (e) { showMsg('msgStaff', e.message); }
+          await loadStaff();
+        }));
+        box.querySelectorAll('[data-staff-action]').forEach(btn => btn.addEventListener('click', async () => {
+          const action = btn.dataset.staffAction;
+          if (action === 'deactivate' && !window.confirm('Désactiver ce compte ? La personne ne pourra plus se connecter. Son historique est conservé.')) return;
+          btn.disabled = true;
+          try {
+            const r = await staffApi('POST', { action, userId: btn.dataset.user });
+            showMsg('msgStaff', action === 'resend' ? (r.emailSent ? 'Invitation renvoyée.' : 'Lien créé mais e-mail non envoyé : ' + (r.emailError || '')) : 'Compte mis à jour.', r.emailSent === false ? 'error' : 'success');
+          } catch (e) { showMsg('msgStaff', e.message); }
+          await loadStaff();
+        }));
+      } catch (e) {
+        box.className = '';
+        box.innerHTML = `<div class="app-msg app-msg-error">${esc(e.message)}</div>`;
+      }
+    }
+
+    document.getElementById('inviteForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      try {
+        const r = await staffApi('POST', {
+          action: 'invite',
+          fullName: document.getElementById('inviteName').value.trim(),
+          email: document.getElementById('inviteEmail').value.trim(),
+          role: document.getElementById('inviteRole').value,
+        });
+        showMsg('msgStaff', r.existingAccount
+          ? 'Compte existant rattaché comme membre de l\'équipe (aucun doublon créé).' + (r.emailSent ? ' Un lien d\'activation a été envoyé.' : '')
+          : (r.emailSent ? 'Invitation envoyée.' : 'Compte créé, mais l\'e-mail n\'a pas pu être envoyé : ' + (r.emailError || '') + ' — utilisez « Renvoyer l\'invitation ».'), r.emailSent === false && !r.existingAccount ? 'error' : 'success');
+        e.target.reset();
+      } catch (err) { showMsg('msgStaff', err.message); }
+      btn.disabled = false;
+      await loadStaff();
+    });
 
     async function loadInfo(session) {
       const res = await fetch('/api/admin/me', { headers: { Authorization: `Bearer ${session.access_token}` } });
@@ -87,7 +189,7 @@
       document.getElementById('infoBox').innerHTML = `
         <p><strong>Nom :</strong> ${esc(info.fullName || '—')}</p>
         <p><strong>E-mail :</strong> ${esc(info.email)}</p>
-        <p><strong>Rôle :</strong> Administrateur</p>
+        <p><strong>Rôle :</strong> ${esc(info.staffRoleLabel || 'Administrateur')}</p>
         <p><strong>Dernière connexion :</strong> ${info.lastSignInAt ? new Date(info.lastSignInAt).toLocaleString('fr-FR') : '—'}</p>
       `;
       document.getElementById('fullNameInput').value = info.fullName || '';

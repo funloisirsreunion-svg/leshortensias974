@@ -1,6 +1,6 @@
 import { Resend } from 'resend';
 import { getSupabaseAdmin } from '../../lib/supabaseAdmin.js';
-import { requireAdmin } from '../../lib/requireAdmin.js';
+import { requireAdmin, hasPermission, dossierPermission } from '../../lib/requireAdmin.js';
 import { shouldEmailForDocument, buildDocumentAddedSubject, buildDocumentAddedHtml } from '../../lib/documentAddedEmail.js';
 
 // Endpoint unique pour les e-mails déclenchés par l'admin depuis la fiche
@@ -50,6 +50,9 @@ export default async function handler(req, res) {
   const { data: dossier, error: dossierError } = await supabaseAdmin
     .from('dossiers').select('*').eq('id', dossierId).single();
   if (dossierError || !dossier) return res.status(404).json({ error: 'Dossier introuvable.' });
+  if (!hasPermission(auth, dossierPermission(dossier.client_type, 'edit'))) {
+    return res.status(403).json({ error: 'Votre rôle ne permet pas cette action sur ce dossier.' });
+  }
   if (!dossier.contact_email) return res.status(400).json({ error: 'Aucune adresse e-mail de contact sur ce dossier.' });
 
   let subject, html, journalAction, journalDetails;

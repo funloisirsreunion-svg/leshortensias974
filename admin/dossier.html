@@ -16,8 +16,6 @@
     <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
     <div class="app-user">
       <a href="dashboard.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Tableau de bord</a>
-      <a href="planning.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">📅 Planning</a>
-      <a href="parametres.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">⚙️</a>
       <button class="app-logout" id="logoutBtn">Déconnexion</button>
     </div>
   </div>
@@ -29,6 +27,8 @@
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
     import { STATUTS, DOC_STATUTS, REGIMES, NIVEAUX, JOURNAL_LABELS, ACCESS_STATUTS, CLIENT_TYPES, STRUCTURE_TYPES, FORMULES, ALL_DOCUMENT_TYPES, DOCUMENT_SOURCES, labelForDocumentType, labelOf, formatDateFr, formatMontant, docCompleteness, computeClassEstimate } from '../lib/appConstants.js';
+    import { loadStaffContext, mountAdminNav } from '../lib/adminNav.js';
+    import { VALIDATED_DOSSIER_STATUTS } from '../lib/planning.js';
     import { blocState, isLockedForAdmin, renderBlocStatusPanel, renderBlocHistory, renderDocumentHistory, renderDocumentDates, documentsSummary, summarizeBlocData, formatDateTimeFr, formatDateShortFr, blocLabel, BLOC_STATUTS } from '../lib/blocValidation.js';
 
     const params = new URLSearchParams(window.location.search);
@@ -36,6 +36,7 @@
     const root = document.getElementById('appRoot');
     let supabase, session, dossier, regimes, documents, paiements, signalements, historique, journal, acces;
     let blocs = [], blocVersions = [], blocEvents = [], docVersions = [];
+    let staff = null;
     let showNonRequis = false;
     let deletePanelOpen = false;
     let autresDossiersParProfil = {};
@@ -120,7 +121,15 @@
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
       if (!profile || profile.role !== 'admin') { await supabase.auth.signOut(); window.location.href = 'index.html'; return; }
 
+      staff = await loadStaffContext(supabase);
+      mountAdminNav(staff, '');
+
       await loadAll();
+    }
+
+    function perm(action) {
+      const t = dossier.client_type === 'group' ? 'groups' : dossier.client_type === 'colony' ? 'colonies' : 'classes';
+      return staff.can(t + '.' + action);
     }
 
     async function loadAll() {
@@ -167,17 +176,19 @@
     function buildTimeline() {
       const fromHistorique = historique.map(h => ({
         ts: h.changed_at,
-        label: (h.ancien_statut ? labelOf(STATUTS, h.ancien_statut) + ' → ' : '') + labelOf(STATUTS, h.nouveau_statut),
+        label: 'Statut : ' + (h.ancien_statut ? labelOf(STATUTS, h.ancien_statut) + ' → ' : '') + labelOf(STATUTS, h.nouveau_statut),
         details: null,
+        by: h.changed_by_name || null,
       }));
       const fromJournal = journal.map(j => ({
         ts: j.created_at,
         label: JOURNAL_LABELS[j.action] || j.action,
         details: j.details,
+        by: j.actor_name || null,
       }));
       return [...fromHistorique, ...fromJournal]
         .sort((a, b) => new Date(b.ts) - new Date(a.ts))
-        .map(item => ({ ...item, date: new Date(item.ts).toLocaleString('fr-FR') }));
+        .map(item => ({ ...item, date: new Date(item.ts).toLocaleString('fr-FR', { timeZone: 'Indian/Reunion', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).replace(' ', ' – ') }));
     }
 
     function buildQuickActions() {
@@ -189,6 +200,9 @@
       } else if (!['refusee', 'annule', 'cloture'].includes(s)) {
         if (s === 'demande_validee' && dossier.montant_devis) {
           actions.push({ id: 'devis_envoye', label: 'Marquer le devis envoyé', cls: '' });
+        }
+        if (!VALIDATED_DOSSIER_STATUTS.includes(s) && perm('validate')) {
+          actions.push({ id: 'valider_reservation', label: '✅ Valider la réservation', cls: '' });
         }
         actions.push({ id: 'relance', label: 'Envoyer une relance', cls: 'app-btn-outline' });
       }
@@ -405,7 +419,7 @@
             ${dossier.archived_at
               ? `<button class="app-btn app-btn-sm app-btn-outline" data-archive-toggle="restore">Restaurer</button>`
               : `<button class="app-btn app-btn-sm app-btn-outline" data-archive-toggle="archive">Archiver le dossier</button>`}
-            <button class="app-btn app-btn-sm app-btn-danger" id="openDeleteBtn">Supprimer définitivement</button>
+            ${staff.can('dossiers.delete') ? '<button class="app-btn app-btn-sm app-btn-danger" id="openDeleteBtn">Supprimer définitivement</button>' : ''}
           </div>
           <div id="relancePanel" style="display:none;margin-bottom:18px;">
             <textarea id="relanceMessage" rows="3" placeholder="Message de relance (optionnel)" style="width:100%;padding:10px;border:2px solid var(--beige-fonce);border-radius:8px;font-family:inherit;"></textarea>
@@ -635,7 +649,7 @@
         <div class="app-card">
           <h2>Historique</h2>
           <ul class="app-todo-list">
-            ${buildTimeline().map(h => `<li><span class="app-todo-dot"></span>${esc(h.label)} ${h.details ? '— ' + esc(h.details) : ''} <span style="color:var(--texte-clair);font-size:.8rem;">— ${h.date}</span></li>`).join('') || '<li>Aucun historique.</li>'}
+            ${buildTimeline().map(h => `<li><span class="app-todo-dot"></span><span>${esc(h.label)}${h.by ? ' <strong>par ' + esc(h.by) + '</strong>' : ''} ${h.details ? '— ' + esc(h.details) : ''} <span style="color:var(--texte-clair);font-size:.8rem;">— ${h.date}</span></span></li>`).join('') || '<li>Aucun historique.</li>'}
           </ul>
         </div>
       `;
@@ -1120,7 +1134,14 @@
     }
 
     async function onQuickAction(action) {
-      const statutMap = { valider: 'demande_validee', refuser: 'refusee', devis_envoye: 'devis_envoye' };
+      const statutMap = { valider: 'demande_validee', refuser: 'refusee', devis_envoye: 'devis_envoye', valider_reservation: 'sejour_confirme' };
+      if (action === 'valider_reservation') {
+        const manque = !dossier.date_confirmee_debut || !dossier.date_confirmee_fin;
+        const msg = manque
+          ? 'Les dates confirmées (arrivée et départ) ne sont pas renseignées : la réservation sera validée mais n\'apparaîtra dans le Planning qu\'une fois les dates saisies.\n\nValider quand même ?'
+          : `Valider la réservation du ${formatDateFr(dossier.date_confirmee_debut)} au ${formatDateFr(dossier.date_confirmee_fin)} ?\nElle apparaîtra automatiquement dans le Planning.`;
+        if (!window.confirm(msg)) return;
+      }
       if (action === 'relance') {
         document.getElementById('relancePanel').style.display = 'block';
         return;

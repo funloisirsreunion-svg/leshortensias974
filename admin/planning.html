@@ -17,7 +17,6 @@
     <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
     <div class="app-user">
       <span id="userLabel"></span>
-      <a href="dashboard.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Tableau de bord</a>
       <button class="app-logout" id="logoutBtn">Déconnexion</button>
     </div>
   </div>
@@ -31,6 +30,7 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
+    import { loadStaffContext, mountAdminNav, requirePagePermission } from '../lib/adminNav.js';
     import {
       PLANNING_TYPES, STATUT_FILTERS, STATUT_GROUP_LABELS, MONTHS_FR,
       typeInfo, operatingYear, operatingYearOf, todayIso, addDays, diffDays,
@@ -63,7 +63,12 @@
       rangeTo: '',
       sort: { key: 'debut', dir: 1 },
     };
-    let supabase, reservations = [], loading = false, loadError = null;
+    let supabase, staff = null, reservations = [], loading = false, loadError = null;
+
+    // Types affichés : les Colonies seulement pour les rôles qui y ont accès.
+    function visibleTypes() {
+      return PLANNING_TYPES.filter(t => t.value !== 'colony' || !staff || staff.can('colonies.read'));
+    }
 
     function year() { return operatingYear(state.startYear); }
 
@@ -99,6 +104,9 @@
       document.getElementById('userLabel').textContent = profile.full_name || profile.email || '';
       supabase.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') window.location.href = 'index.html'; });
       document.getElementById('logoutBtn').addEventListener('click', async () => { await supabase.auth.signOut(); window.location.href = 'index.html'; });
+      staff = await loadStaffContext(supabase);
+      if (!requirePagePermission(staff, ['planning.read'])) return;
+      mountAdminNav(staff, 'planning');
 
       MOBILE.addEventListener('change', render);
       await loadYear();
@@ -201,7 +209,7 @@
       return `
         <div class="pl-kpis">
           ${kpi(s.count, 'Réservations validées')}
-          ${PLANNING_TYPES.map(t => kpi(s.byType[t.value] || 0, `<span aria-hidden="true">${t.icon}</span> ${esc(t.plural)}`)).join('')}
+          ${visibleTypes().map(t => kpi(s.byType[t.value] || 0, `<span aria-hidden="true">${t.icon}</span> ${esc(t.plural)}`)).join('')}
           ${kpi(s.personnes.toLocaleString('fr-FR'), 'Personnes prévisionnelles', s.sansEffectif ? `<br/><span class="pl-warn">+ ${s.sansEffectif} séjour${s.sansEffectif > 1 ? 's' : ''} sans effectif</span>` : '')}
           ${kpi(s.nuitees.toLocaleString('fr-FR'), 'Nuitées (personnes × nuits)', `<br/><span class="pl-muted">${s.nuits} nuit${s.nuits > 1 ? 's' : ''} de séjour</span>`)}
         </div>`;
@@ -239,7 +247,7 @@
             <label class="pl-inline">Type
               <select id="typeFilter">
                 <option value="all">Tous</option>
-                ${PLANNING_TYPES.map(t => `<option value="${t.value}" ${state.type === t.value ? 'selected' : ''}>${t.icon} ${esc(t.plural)}</option>`).join('')}
+                ${visibleTypes().map(t => `<option value="${t.value}" ${state.type === t.value ? 'selected' : ''}>${t.icon} ${esc(t.plural)}</option>`).join('')}
               </select>
             </label>
             ${state.view === 'liste' ? `
@@ -260,7 +268,7 @@
     function legend() {
       return `
         <div class="pl-legend" aria-label="Légende">
-          ${PLANNING_TYPES.map(t => `<span class="pl-res pl-res-${t.value} pl-legend-item"><span aria-hidden="true">${t.icon}</span> ${esc(t.label)}</span>`).join('')}
+          ${visibleTypes().map(t => `<span class="pl-res pl-res-${t.value} pl-legend-item"><span aria-hidden="true">${t.icon}</span> ${esc(t.label)}</span>`).join('')}
           ${state.statut !== 'validee' ? '<span class="pl-res pl-res-school pl-indicatif pl-legend-item">Dates indicatives</span>' : ''}
         </div>`;
     }

@@ -73,24 +73,32 @@
       <div id="msgBox"></div>
 
       <div class="type-cards" id="typeCards">
-        <label class="type-card">
+        <label class="type-card" data-perm="classes.create">
           <input type="radio" name="clientType" value="school" checked />
           <span class="type-card-inner"><span class="type-card-icon">🏫</span><span class="type-card-label">Classe de découverte</span></span>
         </label>
-        <label class="type-card">
+        <label class="type-card" data-perm="groups.create">
           <input type="radio" name="clientType" value="group" />
           <span class="type-card-inner"><span class="type-card-icon">👥</span><span class="type-card-label">Groupe indépendant</span></span>
         </label>
-        <a class="type-card type-card-link" href="colonie.html?new=1">
+        <a class="type-card type-card-link" href="colonie.html?new=1" data-perm="colonies.manage">
           <span class="type-card-inner">
             <span class="type-card-icon">🏕️</span>
             <span class="type-card-label">Colonie de vacances<br/><span class="type-card-note">Créer un séjour →</span></span>
           </span>
         </a>
       </div>
-      <p style="font-size:.82rem;color:var(--texte-clair);margin:-10px 0 22px;">
+      <p style="font-size:.82rem;color:var(--texte-clair);margin:-10px 0 22px;" data-perm="colonies.manage">
         Une colonie fonctionne différemment : on crée d'abord un <strong>séjour</strong> (ex. « Colonie Octobre 2026 »), puis les familles s'inscrivent dedans. Cliquez sur la carte ci-dessus pour créer un séjour.
       </p>
+
+      <!-- ── Recherche d'un client existant (évite de recréer établissement, client, compte) ── -->
+      <div class="app-panel-section" id="clientSearchBox" style="background:var(--beige);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:20px;">
+        <label for="clientSearch" style="font-weight:700;font-size:.9rem;display:block;margin-bottom:6px;">1. Le client existe-t-il déjà ?</label>
+        <input type="search" id="clientSearch" placeholder="Nom de l'école, de la structure ou e-mail…" autocomplete="off" style="width:100%;padding:10px 12px;border:2px solid var(--beige-fonce);border-radius:var(--radius-sm);font-family:inherit;" />
+        <div id="clientResults" style="margin-top:8px;"></div>
+        <div id="clientChosen"></div>
+      </div>
 
       <form id="form">
         <!-- ── Classe de découverte ── -->
@@ -118,6 +126,17 @@
             </div>
           </div>
           <div class="app-field"><label>Période souhaitée</label><input type="text" name="periode_souhaitee" placeholder="Ex : mars ou avril 2027" /></div>
+          <div class="app-grid-3">
+            <div class="app-field"><label>Date proposée</label><input type="date" name="date_proposee" /></div>
+            <div class="app-field"><label>Arrivée confirmée</label><input type="date" name="date_confirmee_debut" /></div>
+            <div class="app-field"><label>Départ confirmé</label><input type="date" name="date_confirmee_fin" /></div>
+          </div>
+          <div class="app-grid-3">
+            <div class="app-field"><label>Élèves (prév.)</label><input type="number" min="0" name="effectif_prev_eleves" /></div>
+            <div class="app-field"><label>Professeurs (prév.)</label><input type="number" min="0" name="effectif_prev_profs" /></div>
+            <div class="app-field"><label>Accompagnateurs (prév.)</label><input type="number" min="0" name="effectif_prev_accompagnateurs" /></div>
+          </div>
+          <p class="app-field-hint" style="margin:-6px 0 16px;">Dates confirmées : à renseigner seulement lorsqu'elles sont connues. La réservation apparaît dans le Planning une fois validée.</p>
         </div>
 
         <!-- ── Groupe indépendant ── -->
@@ -154,6 +173,10 @@
             <div class="app-field"><label>Heure de départ</label><input type="time" name="demande_heure_depart" /></div>
           </div>
           <div class="app-grid-2">
+            <div class="app-field"><label>Arrivée confirmée</label><input type="date" name="date_confirmee_debut" /></div>
+            <div class="app-field"><label>Départ confirmé</label><input type="date" name="date_confirmee_fin" /></div>
+          </div>
+          <div class="app-grid-2">
             <div class="app-field"><label>Nombre d'adultes</label><input type="number" min="0" name="nb_adultes" /></div>
             <div class="app-field"><label>Nombre d'enfants</label><input type="number" min="0" name="nb_enfants" /></div>
           </div>
@@ -175,8 +198,11 @@
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
+    import { loadStaffContext, mountAdminNav, requirePagePermission } from '../lib/adminNav.js';
 
     const msgBox = document.getElementById('msgBox');
+    let chosenOrg = null;
+    function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
     const form = document.getElementById('form');
     const submitBtn = document.getElementById('submitBtn');
     let supabase;
@@ -200,8 +226,64 @@
       supabase = await getSupabaseClient();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { window.location.href = 'index.html'; return; }
+      const staff = await loadStaffContext(supabase);
+      if (!requirePagePermission(staff, ['classes.create', 'groups.create'])) return;
+      mountAdminNav(staff, '');
+      const first = document.querySelector('input[name="clientType"]');
+      if (first && !document.querySelector('input[name="clientType"]:checked')) first.checked = true;
+      updateSections();
+      const p = new URLSearchParams(location.search);
+      if (p.get('org')) await chooseOrg(p.get('org'));
     }
     init();
+
+    // ---------- Recherche d'un client existant ----------
+    let searchTimer;
+    document.getElementById('clientSearch').addEventListener('input', (e) => {
+      clearTimeout(searchTimer);
+      const q = e.target.value.trim();
+      searchTimer = setTimeout(() => searchClients(q), 250);
+    });
+
+    async function searchClients(q) {
+      const box = document.getElementById('clientResults');
+      if (q.length < 2) { box.innerHTML = ''; return; }
+      const like = '%' + q.replace(/[%,()]/g, ' ') + '%';
+      const [{ data: orgs }, { data: viaDossiers }] = await Promise.all([
+        supabase.from('organizations').select('id, nom, type, email_contact').is('archived_at', null)
+          .or(`nom.ilike.${like},email_contact.ilike.${like}`).limit(8),
+        supabase.from('dossiers').select('organization_id, organizations(id, nom, type, email_contact)')
+          .not('organization_id', 'is', null).or(`etablissement.ilike.${like},structure_nom.ilike.${like},contact_email.ilike.${like}`).limit(15),
+      ]);
+      const found = new Map();
+      (orgs || []).forEach(o => found.set(o.id, o));
+      (viaDossiers || []).forEach(d => { if (d.organizations) found.set(d.organizations.id, d.organizations); });
+      const list = [...found.values()].filter(o => o.type === currentType());
+      box.innerHTML = list.length
+        ? list.map(o => `<div class="app-doc-row"><span class="app-doc-name">${esc(o.nom)} <span class="app-badge app-badge-green">Client existant</span> <span style="font-weight:400;color:var(--texte-clair);font-size:.8rem;">${esc(o.email_contact || '')}</span></span><button type="button" class="app-btn app-btn-sm" data-use-org="${o.id}">Utiliser ce client</button></div>`).join('')
+        : '<p style="font-size:.85rem;color:var(--texte-clair);">Aucun client existant trouvé : un nouveau client sera créé avec ce dossier.</p>';
+      box.querySelectorAll('[data-use-org]').forEach(b => b.addEventListener('click', () => chooseOrg(b.dataset.useOrg)));
+    }
+
+    // Client choisi : le nouveau séjour rejoindra son espace (aucun compte recréé),
+    // les coordonnées du dernier séjour pré-remplissent le formulaire.
+    async function chooseOrg(orgId) {
+      const { data: org } = await supabase.from('organizations').select('id, nom, type, email_contact').eq('id', orgId).maybeSingle();
+      if (!org) return;
+      const { data: last } = await supabase.from('dossiers').select('*').eq('organization_id', org.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      chosenOrg = org;
+      const radio = document.querySelector(`input[name="clientType"][value="${org.type}"]`);
+      if (radio) { radio.checked = true; updateSections(); }
+      const section = document.querySelector(`[data-section="${org.type}"]`);
+      const fill = (name, value) => { const el = section.querySelector(`[name="${name}"]`); if (el && value != null && value !== '') el.value = value; };
+      if (org.type === 'group') fill('structure_nom', org.nom); else fill('etablissement', org.nom);
+      if (last) ['commune', 'code_postal', 'adresse', 'contact_nom', 'contact_prenom', 'contact_telephone', 'contact_email', 'contact_fonction', 'structure_type', 'programme', 'duree'].forEach(n => fill(n, last[n]));
+      fill('contact_email', last?.contact_email || org.email_contact);
+      document.getElementById('clientResults').innerHTML = '';
+      document.getElementById('clientChosen').innerHTML = `<div class="app-msg app-msg-success" style="margin:10px 0 0;">Nouveau séjour pour <strong>${esc(org.nom)}</strong> (client existant) : il apparaîtra dans le même espace client. <button type="button" class="app-btn app-btn-sm app-btn-outline" id="clearOrg" style="margin-left:8px;">Changer</button></div>`;
+      document.getElementById('clearOrg').addEventListener('click', () => { chosenOrg = null; document.getElementById('clientChosen').innerHTML = ''; });
+      document.getElementById('submitBtn').textContent = 'Créer le nouveau séjour';
+    }
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -210,7 +292,7 @@
         const { data: { session } } = await supabase.auth.getSession();
         const type = currentType();
         const section = document.querySelector(`[data-section="${type}"]`);
-        const body = { clientType: type };
+        const body = { clientType: type, organizationId: chosenOrg && chosenOrg.type === type ? chosenOrg.id : null };
         section.querySelectorAll('input, select, textarea').forEach(el => {
           if (el.name) body[el.name] = el.value;
         });

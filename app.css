@@ -327,3 +327,15 @@ body.pl-noscroll { overflow:hidden; }
   .pl-table td::before { content:attr(data-label); font-size:.72rem; font-weight:700; color:var(--brun); text-transform:uppercase; text-align:left; }
   .pl-search { min-width:0; width:100%; }
 }
+
+/* ===== Menu Admin (filtré selon les permissions du rôle) ===== */
+.app-adminnav { background:var(--blanc); border-bottom:1px solid var(--beige-fonce); display:flex; gap:4px; padding:0 20px; overflow-x:auto; }
+.app-adminnav a { padding:12px 14px; font-size:.86rem; font-weight:700; color:var(--texte-clair); white-space:nowrap; border-bottom:3px solid transparent; text-decoration:none; }
+.app-adminnav a:hover { color:var(--vert-fonce); }
+.app-adminnav a.active { color:var(--vert-fonce); border-bottom-color:var(--vert-fonce); }
+
+/* Indicateurs cliquables (suivi commercial) */
+.app-kpi-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; }
+.app-kpi-btn { border:2px solid transparent; cursor:pointer; font-family:'Lato',sans-serif; }
+.app-kpi-btn:hover { border-color:var(--beige-fonce); }
+.app-kpi-btn.active { border-color:var(--vert-fonce); }

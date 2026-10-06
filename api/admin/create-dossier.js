@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from '../../lib/supabaseAdmin.js';
-import { requireAdmin } from '../../lib/requireAdmin.js';
+import { requirePermission } from '../../lib/requireAdmin.js';
 import { assignClsNumber } from '../../lib/clsDossierNumber.js';
 import { assignGrpNumber } from '../../lib/grpDossierNumber.js';
 
@@ -16,20 +16,23 @@ const FORMULES = new Set(['pension_complete', 'demi_pension', 'weekend', 'autre'
 function str(v) { return typeof v === 'string' ? v.trim() : ''; }
 function intOrNull(v) { const n = parseInt(v, 10); return Number.isFinite(n) ? n : null; }
 function numOrNull(v) { return v === '' || v === null || v === undefined ? null : Number(v); }
+function dateOrNull(v) { return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null; }
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Méthode non autorisée.' });
   }
 
+  const body = req.body || {};
+  const clientType = CLIENT_TYPES.has(body.clientType) ? body.clientType : 'school';
+
+  let auth;
   try {
-    await requireAdmin(req);
+    auth = await requirePermission(req, clientType === 'group' ? 'groups.create' : 'classes.create');
   } catch (error) {
     return res.status(error.status || 401).json({ error: error.message });
   }
-
-  const body = req.body || {};
-  const clientType = CLIENT_TYPES.has(body.clientType) ? body.clientType : 'school';
 
   const supabaseAdmin = getSupabaseAdmin();
   let payload;
@@ -53,6 +56,12 @@ export default async function handler(req, res) {
       programme: body.programme || null,
       duree: body.duree ? Number(body.duree) : null,
       periode_souhaitee: str(body.periode_souhaitee) || null,
+      date_proposee: dateOrNull(body.date_proposee),
+      date_confirmee_debut: dateOrNull(body.date_confirmee_debut),
+      date_confirmee_fin: dateOrNull(body.date_confirmee_fin),
+      effectif_prev_eleves: intOrNull(body.effectif_prev_eleves),
+      effectif_prev_profs: intOrNull(body.effectif_prev_profs),
+      effectif_prev_accompagnateurs: intOrNull(body.effectif_prev_accompagnateurs),
     };
   } else if (clientType === 'group') {
     const structureNom = str(body.structure_nom);
@@ -78,6 +87,8 @@ export default async function handler(req, res) {
       nb_enfants: intOrNull(body.nb_enfants),
       formule: body.formule || null,
       estimation_montant: numOrNull(body.estimation_montant),
+      date_confirmee_debut: dateOrNull(body.date_confirmee_debut),
+      date_confirmee_fin: dateOrNull(body.date_confirmee_fin),
     };
   }
 
@@ -86,15 +97,29 @@ export default async function handler(req, res) {
 
     const { data, error } = await supabaseAdmin
       .from('dossiers')
-      .insert({ numero, ...payload })
+      .insert({ numero, ...payload, source: 'admin', created_by: auth.user.id })
       .select()
       .single();
 
     if (error) throw error;
 
-    // Rattache le dossier à son organisation (retrouvée par nom + e-mail, sinon créée).
+    // Client existant choisi dans la recherche : le nouveau séjour rejoint ce client
+    // (même espace client, aucun compte ni identifiant recréé). Sinon, rattachement
+    // à l'organisation retrouvée par nom + e-mail, ou création.
     // Best-effort : la création du dossier ne doit jamais échouer à cause de cette étape.
-    const { data: organizationId } = await supabaseAdmin.rpc('ensure_dossier_organization', { p_dossier_id: data.id });
+    const existingOrgId = UUID_RE.test(body.organizationId || '') ? body.organizationId : null;
+    let organizationId = null;
+    if (existingOrgId) {
+      const { data: org } = await supabaseAdmin.from('organizations').select('id').eq('id', existingOrgId).maybeSingle();
+      if (org) {
+        const { error: attachError } = await supabaseAdmin.from('dossiers').update({ organization_id: org.id }).eq('id', data.id);
+        if (!attachError) organizationId = org.id;
+      }
+    }
+    if (!organizationId) {
+      const { data: ensured } = await supabaseAdmin.rpc('ensure_dossier_organization', { p_dossier_id: data.id });
+      organizationId = ensured || null;
+    }
     if (organizationId) data.organization_id = organizationId;
 
     return res.status(201).json({ dossier: data });
