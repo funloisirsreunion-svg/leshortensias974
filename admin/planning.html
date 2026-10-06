@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Planning & Réservations — Administration | Les Hortensias</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../app.css" />
+</head>
+<body class="app-body">
+
+  <div class="app-topbar">
+    <div class="app-logo"><span>🌸</span><span>Administration — Les Hortensias</span></div>
+    <div class="app-user">
+      <span id="userLabel"></span>
+      <a href="dashboard.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Tableau de bord</a>
+      <button class="app-logout" id="logoutBtn">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="app-container" id="appRoot">
+    <div class="app-loading">Chargement…</div>
+  </div>
+
+  <div class="pl-drawer-backdrop" id="drawerBackdrop" hidden></div>
+  <aside class="pl-drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" hidden></aside>
+
+  <script type="module">
+    import { getSupabaseClient } from '../lib/supabaseClient.js';
+    import {
+      PLANNING_TYPES, STATUT_FILTERS, STATUT_GROUP_LABELS, MONTHS_FR,
+      typeInfo, operatingYear, operatingYearOf, todayIso, addDays, diffDays,
+      monthStart, monthEnd, formatShort, formatLong, formatRange,
+      loadPlanning, matchesFilters, sortByArrival, overlaps, isPlaceable, reservationIssues,
+      dailyPresence, yearStats, monthWeeks, weekdayMon, daysInMonth,
+    } from '../lib/planning.js';
+
+    const root = document.getElementById('appRoot');
+    const drawer = document.getElementById('drawer');
+    const backdrop = document.getElementById('drawerBackdrop');
+    const MOBILE = window.matchMedia('(max-width: 720px)');
+    const TODAY = todayIso();
+
+    function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+    function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+    // ---------- État (reflété dans l'URL pour pouvoir partager/recharger) ----------
+    const params = new URLSearchParams(location.search);
+    const state = {
+      startYear: Number(params.get('annee')) || operatingYearOf(TODAY),
+      view: params.get('vue') === 'liste' ? 'liste' : 'calendrier',
+      calMode: params.get('cal') === 'mois' ? 'mois' : 'annee',
+      monthKey: params.get('mois') || null,          // AAAA-MM affiché en vue Mois
+      statut: STATUT_FILTERS.some(f => f.value === params.get('statut')) ? params.get('statut') : 'validee',
+      type: params.get('type') || 'all',
+      search: '',
+      listMonth: 'all',
+      rangeFrom: '',
+      rangeTo: '',
+      sort: { key: 'debut', dir: 1 },
+    };
+    let supabase, reservations = [], loading = false, loadError = null;
+
+    function year() { return operatingYear(state.startYear); }
+
+    function syncUrl() {
+      const p = new URLSearchParams();
+      p.set('annee', state.startYear);
+      if (state.view === 'liste') p.set('vue', 'liste');
+      if (state.calMode === 'mois') p.set('cal', 'mois');
+      if (state.calMode === 'mois' && state.monthKey) p.set('mois', state.monthKey);
+      if (state.statut !== 'validee') p.set('statut', state.statut);
+      if (state.type !== 'all') p.set('type', state.type);
+      history.replaceState(null, '', `${location.pathname}?${p.toString()}`);
+    }
+
+    // Mois affiché par défaut en vue Mois : le mois courant s'il est dans
+    // l'année sélectionnée, sinon octobre.
+    function ensureMonthKey() {
+      const y = year();
+      if (state.monthKey && y.months.some(m => m.key === state.monthKey)) return;
+      const cur = TODAY.slice(0, 7);
+      state.monthKey = y.months.some(m => m.key === cur) ? cur : y.months[0].key;
+    }
+
+    // ---------- Initialisation / session ----------
+    async function init() {
+      try { supabase = await getSupabaseClient(); }
+      catch (e) { root.innerHTML = `<div class="app-msg app-msg-error">${esc(e.message)}</div>`; return; }
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { window.location.href = 'index.html?next=' + encodeURIComponent('planning.html' + location.search); return; }
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+      if (!profile || profile.role !== 'admin') { await supabase.auth.signOut(); window.location.href = 'index.html'; return; }
+      document.getElementById('userLabel').textContent = profile.full_name || profile.email || '';
+      supabase.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') window.location.href = 'index.html'; });
+      document.getElementById('logoutBtn').addEventListener('click', async () => { await supabase.auth.signOut(); window.location.href = 'index.html'; });
+
+      MOBILE.addEventListener('change', render);
+      await loadYear();
+    }
+
+    async function loadYear() {
+      loading = true; loadError = null;
+      render();
+      try {
+        reservations = await loadPlanning(supabase, year());
+      } catch (e) {
+        loadError = e.message || String(e);
+        reservations = [];
+      }
+      loading = false;
+      render();
+    }
+
+    // ---------- Sélections ----------
+    function filtered() {
+      return reservations.filter(r => matchesFilters(r, state));
+    }
+    function validatedInYear() {
+      return reservations.filter(r => r.statutGroup === 'validee' && overlaps(r, year().start, year().end));
+    }
+    function toComplete() {
+      const y = year();
+      return sortByArrival(reservations.filter(r => r.statutGroup === 'validee').filter(r => {
+        const issues = reservationIssues(r);
+        if (!issues.length) return false;
+        // Dates inexploitables : toujours signalées (elles ne sont sur aucun calendrier).
+        if (issues.some(i => i.level === 'dates')) return true;
+        return overlaps(r, y.start, y.end);
+      }));
+    }
+
+    // ---------- Petits rendus réutilisables ----------
+    function typeTag(r) {
+      const t = typeInfo(r.type);
+      return `<span class="pl-type pl-type-${r.type}"><span aria-hidden="true">${t.icon}</span> ${esc(t.short)}</span>`;
+    }
+    function effectifText(r, short = false) {
+      if (r.effectif.total === null) return short ? '<span class="pl-muted">non renseigné</span>' : 'Effectif : non renseigné';
+      return `${r.effectif.total}${short ? '' : ' personne' + (r.effectif.total > 1 ? 's' : '')}`;
+    }
+    function statutBadge(r) {
+      const color = { validee: 'green', en_attente: 'orange', nouvelle: 'blue', annulee: 'red', refusee: 'gray', archivee: 'gray' }[r.statutGroup] || 'gray';
+      return `<span class="app-badge app-badge-${color}" title="${esc(STATUT_GROUP_LABELS[r.statutGroup] || '')}">${esc(r.statutLabel)}</span>`;
+    }
+    function resClasses(r) {
+      return `pl-res pl-res-${r.type} pl-st-${r.statutGroup}${r.datesIndicatives ? ' pl-indicatif' : ''}`;
+    }
+
+    // ---------- Rendu principal ----------
+    function render() {
+      if (state.calMode === 'mois' || MOBILE.matches) ensureMonthKey();
+      const y = year();
+      root.innerHTML = `
+        <div class="app-card pl-head">
+          <div class="pl-head-row">
+            <h2 style="margin:0;">📅 Planning & Réservations</h2>
+            <div class="pl-yearnav" role="group" aria-label="Année d'exploitation">
+              <button type="button" class="app-btn app-btn-sm app-btn-outline" data-year="${y.startYear - 1}" aria-label="Année ${y.startYear - 1}-${y.startYear}">← ${y.startYear - 1}-${y.startYear}</button>
+              <select id="yearSelect" aria-label="Choisir l'année d'exploitation">${yearOptions(y.startYear)}</select>
+              <button type="button" class="app-btn app-btn-sm app-btn-outline" data-year="${y.startYear + 1}" aria-label="Année ${y.startYear + 1}-${y.startYear + 2}">${y.startYear + 1}-${y.startYear + 2} →</button>
+            </div>
+          </div>
+          <p class="pl-sub">Année d'exploitation du <strong>1<sup>er</sup> octobre ${y.startYear}</strong> au <strong>30 septembre ${y.startYear + 1}</strong>. Le planning est calculé en direct à partir des dossiers : aucune saisie ici.</p>
+          ${loading ? '<div class="app-loading" style="padding:16px;">Chargement de l\'année…</div>' : ''}
+          ${loadError ? `<div class="app-msg app-msg-error">Impossible de charger le planning : ${esc(loadError)}</div>` : ''}
+          ${!loading && !loadError ? renderKpis() : ''}
+        </div>
+        ${!loading && !loadError ? renderToComplete() : ''}
+        ${!loading && !loadError ? `
+        <div class="app-card">
+          <div class="app-tabs" role="tablist">
+            <span class="app-tab ${state.view === 'calendrier' ? 'active' : ''}" role="tab" tabindex="0" aria-selected="${state.view === 'calendrier'}" data-view="calendrier">Calendrier</span>
+            <span class="app-tab ${state.view === 'liste' ? 'active' : ''}" role="tab" tabindex="0" aria-selected="${state.view === 'liste'}" data-view="liste">Liste des réservations</span>
+          </div>
+          ${renderFilters()}
+          ${state.view === 'calendrier' ? renderCalendar() : renderList()}
+        </div>` : ''}`;
+      bind();
+      syncUrl();
+    }
+
+    function yearOptions(current) {
+      const base = operatingYearOf(TODAY);
+      const from = Math.min(base - 2, current - 1);
+      const to = Math.max(base + 3, current + 1);
+      let html = '';
+      for (let yy = from; yy <= to; yy++) html += `<option value="${yy}" ${yy === current ? 'selected' : ''}>${yy}-${yy + 1}</option>`;
+      return html;
+    }
+
+    function renderKpis() {
+      const y = year();
+      const s = yearStats(validatedInYear(), y);
+      const kpi = (n, label, extra = '') => `<div class="app-kpi"><div class="app-kpi-num">${n}</div><div class="app-kpi-label">${label}${extra}</div></div>`;
+      return `
+        <div class="pl-kpis">
+          ${kpi(s.count, 'Réservations validées')}
+          ${PLANNING_TYPES.map(t => kpi(s.byType[t.value] || 0, `<span aria-hidden="true">${t.icon}</span> ${esc(t.plural)}`)).join('')}
+          ${kpi(s.personnes.toLocaleString('fr-FR'), 'Personnes prévisionnelles', s.sansEffectif ? `<br/><span class="pl-warn">+ ${s.sansEffectif} séjour${s.sansEffectif > 1 ? 's' : ''} sans effectif</span>` : '')}
+          ${kpi(s.nuitees.toLocaleString('fr-FR'), 'Nuitées (personnes × nuits)', `<br/><span class="pl-muted">${s.nuits} nuit${s.nuits > 1 ? 's' : ''} de séjour</span>`)}
+        </div>`;
+    }
+
+    function renderToComplete() {
+      const list = toComplete();
+      if (!list.length) return '';
+      return `
+        <div class="app-card pl-tocomplete">
+          <h2>⚠ Réservations validées à compléter <span class="pl-count">${list.length}</span></h2>
+          <p class="pl-sub" style="margin-top:-6px;">Ces séjours sont validés mais une information manque. Ceux sans dates exploitables n'apparaissent sur aucun calendrier tant que le dossier n'est pas corrigé.</p>
+          <ul class="pl-tc-list">
+            ${list.map(r => `
+              <li>
+                <div>
+                  <strong>${esc(r.nom)}</strong> ${typeTag(r)} ${r.numero ? `<span class="pl-muted">${esc(r.numero)}</span>` : ''}
+                  ${reservationIssues(r).map(i => `<div class="pl-issue pl-issue-${i.level}">⚠ ${esc(i.text)}</div>`).join('')}
+                  ${isPlaceable(r) ? `<div class="pl-muted" style="font-size:.8rem;">${esc(formatRange(r.debut, r.fin))}</div>` : ''}
+                </div>
+                <a class="app-btn app-btn-sm app-btn-outline" href="${esc(r.url)}">Ouvrir le dossier</a>
+              </li>`).join('')}
+          </ul>
+        </div>`;
+    }
+
+    function renderFilters() {
+      const y = year();
+      return `
+        <div class="pl-filters">
+          <div class="app-filters" role="group" aria-label="Statut">
+            ${STATUT_FILTERS.map(f => `<button type="button" class="app-chip ${state.statut === f.value ? 'active' : ''}" data-statut="${f.value}" aria-pressed="${state.statut === f.value}">${esc(f.label)}</button>`).join('')}
+          </div>
+          <div class="app-filters">
+            <label class="pl-inline">Type
+              <select id="typeFilter">
+                <option value="all">Tous</option>
+                ${PLANNING_TYPES.map(t => `<option value="${t.value}" ${state.type === t.value ? 'selected' : ''}>${t.icon} ${esc(t.plural)}</option>`).join('')}
+              </select>
+            </label>
+            ${state.view === 'liste' ? `
+              <label class="pl-inline">Mois
+                <select id="listMonth">
+                  <option value="all">Toute l'année</option>
+                  ${y.months.map(m => `<option value="${m.key}" ${state.listMonth === m.key ? 'selected' : ''}>${esc(m.label)} ${m.year}</option>`).join('')}
+                </select>
+              </label>
+              <label class="pl-inline">Du <input type="date" id="rangeFrom" value="${esc(state.rangeFrom)}" /></label>
+              <label class="pl-inline">au <input type="date" id="rangeTo" value="${esc(state.rangeTo)}" /></label>` : ''}
+            <input type="search" id="searchInput" placeholder="Rechercher : école, groupe, contact, commune…" value="${esc(state.search)}" class="pl-search" aria-label="Rechercher" />
+          </div>
+          ${state.statut !== 'validee' ? `<div class="app-msg app-msg-info" style="margin:0 0 14px;">Affichage : <strong>${esc(STATUT_FILTERS.find(f => f.value === state.statut).label)}</strong>. Le calendrier opérationnel est celui des <button type="button" class="pl-linkbtn" data-statut="validee">réservations validées</button>.${state.statut !== 'annulee' && state.statut !== 'refusee' ? ' Les dates en pointillés sont indicatives (pas encore confirmées).' : ''}</div>` : ''}
+        </div>`;
+    }
+
+    function legend() {
+      return `
+        <div class="pl-legend" aria-label="Légende">
+          ${PLANNING_TYPES.map(t => `<span class="pl-res pl-res-${t.value} pl-legend-item"><span aria-hidden="true">${t.icon}</span> ${esc(t.label)}</span>`).join('')}
+          ${state.statut !== 'validee' ? '<span class="pl-res pl-res-school pl-indicatif pl-legend-item">Dates indicatives</span>' : ''}
+        </div>`;
+    }
+
+    // ---------- Calendrier ----------
+    function renderCalendar() {
+      const mobile = MOBILE.matches;
+      const mode = mobile ? 'mois' : state.calMode;
+      return `
+        <div class="pl-cal-toolbar">
+          ${mobile ? '' : `
+          <div class="app-filters" role="group" aria-label="Affichage" style="margin:0;">
+            <button type="button" class="app-chip ${mode === 'annee' ? 'active' : ''}" data-calmode="annee" aria-pressed="${mode === 'annee'}">Année</button>
+            <button type="button" class="app-chip ${mode === 'mois' ? 'active' : ''}" data-calmode="mois" aria-pressed="${mode === 'mois'}">Mois</button>
+          </div>`}
+          ${legend()}
+        </div>
+        ${mode === 'annee' ? renderYearView() : renderMonthView()}`;
+    }
+
+    function renderYearView() {
+      const y = year();
+      const list = filtered().filter(isPlaceable);
+      const presence = dailyPresence(list, y.start, y.end);
+      return `<div class="pl-year">${y.months.map(m => {
+        const first = monthStart(m.year, m.month0);
+        const last = monthEnd(m.year, m.month0);
+        const offset = weekdayMon(first);
+        const inMonth = sortByArrival(list.filter(r => overlaps(r, first, last)));
+        let cells = '';
+        for (let i = 0; i < offset; i++) cells += '<span class="pl-mini-day pl-empty"></span>';
+        for (let d = 1; d <= daysInMonth(m.year, m.month0); d++) {
+          const iso = `${m.key}-${String(d).padStart(2, '0')}`;
+          const cell = presence.get(iso);
+          const n = cell ? cell.reservations.length : 0;
+          const types = cell ? [...new Set(cell.reservations.map(r => r.type))] : [];
+          const label = cell ? `${formatLong(iso)} : ${n} groupe${n > 1 ? 's' : ''}${cell.total ? `, ${cell.total} personnes` : ''}${cell.unknown ? ` (+${cell.unknown} sans effectif)` : ''}` : formatLong(iso);
+          cells += `<button type="button" class="pl-mini-day ${n ? 'pl-occ pl-occ-' + Math.min(n, 3) : ''} ${iso === TODAY ? 'pl-today' : ''}" data-day="${iso}" title="${esc(label)}" aria-label="${esc(label)}">
+              <span>${d}</span>${types.length ? `<span class="pl-mini-marks">${types.map(t => `<i class="pl-mark pl-mark-${t}"></i>`).join('')}</span>` : ''}
+            </button>`;
+        }
+        return `
+          <section class="pl-mini">
+            <button type="button" class="pl-mini-title" data-open-month="${m.key}">${esc(cap(m.label))} ${m.year} <span class="pl-muted">${inMonth.length ? `· ${inMonth.length} séjour${inMonth.length > 1 ? 's' : ''}` : ''}</span></button>
+            <div class="pl-mini-grid">${['L', 'M', 'M', 'J', 'V', 'S', 'D'].map(x => `<span class="pl-mini-wd">${x}</span>`).join('')}${cells}</div>
+            <ul class="pl-mini-list">
+              ${inMonth.slice(0, 6).map(r => `
+                <li><button type="button" class="${resClasses(r)} pl-mini-res" data-res="${esc(r.key)}">
+                  <span aria-hidden="true">${typeInfo(r.type).icon}</span> <span class="pl-mini-dates">${formatShort(r.debut, false)}→${formatShort(r.fin, false)}</span> ${esc(r.nom)}${r.effectif.total !== null ? ` · ${r.effectif.total} p.` : ''}
+                </button></li>`).join('')}
+              ${inMonth.length > 6 ? `<li><button type="button" class="pl-linkbtn" data-open-month="${m.key}">+ ${inMonth.length - 6} autre${inMonth.length - 6 > 1 ? 's' : ''} — voir le mois</button></li>` : ''}
+            </ul>
+          </section>`;
+      }).join('')}</div>`;
+    }
+
+    function renderMonthView() {
+      const y = year();
+      const idx = y.months.findIndex(m => m.key === state.monthKey);
+      const m = y.months[idx];
+      const list = filtered().filter(isPlaceable);
+      const first = monthStart(m.year, m.month0);
+      const last = monthEnd(m.year, m.month0);
+      const weeks = monthWeeks(m.year, m.month0, list);
+      const presence = dailyPresence(list, addDays(first, -7), addDays(last, 7));
+      const inMonth = sortByArrival(list.filter(r => overlaps(r, first, last)));
+      const MAX_LANES = 4;
+      const prevLabel = idx > 0 ? cap(y.months[idx - 1].label) : `Septembre ${y.startYear}`;
+      const nextLabel = idx < 11 ? cap(y.months[idx + 1].label) : `Octobre ${y.startYear + 1}`;
+      return `
+        <div class="pl-monthnav">
+          <button type="button" class="app-btn app-btn-sm app-btn-outline" data-month-step="-1" aria-label="Mois précédent : ${esc(prevLabel)}">‹ <span class="pl-hide-xs">${esc(prevLabel)}</span></button>
+          <h3>${esc(m.label)} ${m.year}</h3>
+          <button type="button" class="app-btn app-btn-sm app-btn-outline" data-month-step="1" aria-label="Mois suivant : ${esc(nextLabel)}"><span class="pl-hide-xs">${esc(nextLabel)}</span> ›</button>
+        </div>
+        <div class="pl-month" role="grid" aria-label="${esc(m.label)} ${m.year}">
+          <div class="pl-wd-row" role="row">${['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'].map(d => `<span role="columnheader"><span class="pl-wd-long">${d}</span><span class="pl-wd-short">${d.slice(0, 3)}</span></span>`).join('')}</div>
+          ${weeks.map(w => {
+            const shown = Math.min(w.laneCount, MAX_LANES);
+            return `
+            <div class="pl-week" role="row" style="--lanes:${shown};">
+              ${w.days.map((d, i) => {
+                const cell = presence.get(d.iso);
+                const n = cell ? cell.reservations.length : 0;
+                const hidden = cell ? w.segments.filter(s => s.lane >= MAX_LANES && i >= s.startCol && i < s.startCol + s.span).length : 0;
+                return `<button type="button" role="gridcell" class="pl-day ${d.inMonth ? '' : 'pl-out'} ${d.iso === TODAY ? 'pl-today' : ''} ${n > 1 ? 'pl-multi' : ''}" style="grid-column:${i + 1};" data-day="${d.iso}" aria-label="${esc(formatLong(d.iso))}${n ? ` : ${n} groupe${n > 1 ? 's' : ''}` : ''}">
+                  <span class="pl-day-num">${d.day}</span>
+                  ${n ? `<span class="pl-day-total">${cell.total ? `${cell.total} p.` : ''}${cell.unknown ? `<span class="pl-warn" title="${cell.unknown} séjour(s) sans effectif">+?</span>` : ''}</span>` : ''}
+                  ${n > 1 ? `<span class="pl-day-groups">${n} groupes</span>` : ''}
+                  ${hidden ? `<span class="pl-day-more">+${hidden}</span>` : ''}
+                </button>`;
+              }).join('')}
+              ${w.segments.filter(s => s.lane < MAX_LANES).map(s => `
+                <button type="button" class="${resClasses(s.r)} pl-bar ${s.continuesBefore ? 'pl-cont-before' : ''} ${s.continuesAfter ? 'pl-cont-after' : ''}"
+                  style="grid-column:${s.startCol + 1} / span ${s.span}; grid-row:${s.lane + 2};"
+                  data-res="${esc(s.r.key)}" title="${esc(`${s.r.nom} — ${formatRange(s.r.debut, s.r.fin)} — ${typeInfo(s.r.type).label}${s.r.effectif.total !== null ? ` — ${s.r.effectif.total} personnes` : ''}`)}">
+                  <span aria-hidden="true">${typeInfo(s.r.type).icon}</span>
+                  <span class="pl-bar-text">${esc(s.r.nom)}${s.r.effectif.total !== null ? ` · ${s.r.effectif.total} p.` : ''}</span>
+                </button>`).join('')}
+            </div>`;
+          }).join('')}
+        </div>
+        <div class="pl-agenda">
+          <h4>${inMonth.length ? `${inMonth.length} séjour${inMonth.length > 1 ? 's' : ''} en ${esc(m.label)}` : `Aucun séjour en ${esc(m.label)} ${m.year}`}</h4>
+          ${inMonth.map(r => agendaCard(r)).join('')}
+        </div>`;
+    }
+
+    function agendaCard(r) {
+      return `
+        <button type="button" class="${resClasses(r)} pl-agenda-card" data-res="${esc(r.key)}">
+          <span class="pl-agenda-name">${esc(r.nom)}</span>
+          <span class="pl-agenda-meta">${esc(formatRange(r.debut, r.fin))}${r.datesIndicatives ? ' (indicatif)' : ''}</span>
+          <span class="pl-agenda-meta">${typeInfo(r.type).icon} ${esc(r.programme)} · ${r.effectif.total !== null ? `${r.effectif.total} personnes` : 'Effectif non renseigné'}</span>
+        </button>`;
+    }
+
+    // ---------- Liste ----------
+    function listRows() {
+      const y = year();
+      let from = y.start, to = y.end;
+      if (state.listMonth !== 'all') {
+        const m = y.months.find(mm => mm.key === state.listMonth);
+        if (m) { from = monthStart(m.year, m.month0); to = monthEnd(m.year, m.month0); }
+      }
+      if (state.rangeFrom && state.rangeFrom > from) from = state.rangeFrom;
+      if (state.rangeTo && state.rangeTo < to) to = state.rangeTo;
+      const rows = filtered().filter(r => overlaps(r, from, to));
+      const { key, dir } = state.sort;
+      const val = (r) => key === 'effectif' ? (r.effectif.total ?? -1) : key === 'nom' ? r.nom.toLowerCase() : key === 'type' ? r.type : (r[key] || '');
+      return sortByArrival(rows).sort((a, b) => {
+        const va = val(a), vb = val(b);
+        return (va < vb ? -1 : va > vb ? 1 : 0) * dir;
+      });
+    }
+
+    function renderList() {
+      const rows = listRows();
+      const undated = state.statut === 'validee' || state.statut === 'all' ? toComplete().filter(r => !isPlaceable(r)).length : 0;
+      const totalP = rows.reduce((s, r) => s + (r.effectif.total || 0), 0);
+      const th = (key, label) => `<th scope="col"><button type="button" class="pl-sort" data-sort="${key}" aria-label="Trier par ${label}">${label}${state.sort.key === key ? (state.sort.dir === 1 ? ' ▲' : ' ▼') : ''}</button></th>`;
+      return `
+        <p class="pl-sub">${rows.length} réservation${rows.length > 1 ? 's' : ''} · ${totalP.toLocaleString('fr-FR')} personnes${undated ? ` · <span class="pl-warn">${undated} réservation${undated > 1 ? 's' : ''} validée${undated > 1 ? 's' : ''} sans dates (voir « À compléter »)</span>` : ''}</p>
+        <div class="app-table-wrap">
+          <table class="app-table pl-table">
+            <thead><tr>
+              ${th('debut', 'Arrivée')}${th('fin', 'Départ')}${th('nom', 'Client / groupe')}${th('type', 'Type')}
+              <th scope="col">Programme / formule</th>${th('effectif', 'Effectif')}<th scope="col">Statut</th><th scope="col">Dossier</th>
+            </tr></thead>
+            <tbody>
+              ${rows.map(r => `
+                <tr class="${r.statutGroup === 'annulee' ? 'pl-row-cancel' : ''}">
+                  <td data-label="Arrivée"><button type="button" class="pl-linkbtn" data-res="${esc(r.key)}">${formatShort(r.debut)}</button>${r.heureArrivee ? ` <span class="pl-muted">${esc(r.heureArrivee)}</span>` : ''}${r.datesIndicatives ? '<br/><span class="pl-muted" style="font-size:.75rem;">indicatif</span>' : ''}</td>
+                  <td data-label="Départ">${formatShort(r.fin)}${r.heureDepart ? ` <span class="pl-muted">${esc(r.heureDepart)}</span>` : ''}</td>
+                  <td data-label="Client / groupe"><strong>${esc(r.nom)}</strong>${r.contact || r.commune ? `<br/><span class="pl-muted" style="font-size:.8rem;">${esc([r.contact, r.commune].filter(Boolean).join(' · '))}</span>` : ''}${r.archived ? ' <span class="app-badge app-badge-gray">📦 Archivé</span>' : ''}</td>
+                  <td data-label="Type">${typeTag(r)}</td>
+                  <td data-label="Programme">${esc(r.programme)}</td>
+                  <td data-label="Effectif">${effectifText(r, true)}</td>
+                  <td data-label="Statut">${statutBadge(r)}${r.cancelledAt ? `<br/><span class="pl-muted" style="font-size:.75rem;">${r.cancelledAtApprox ? 'modifié' : 'annulé'} le ${new Date(r.cancelledAt).toLocaleDateString('fr-FR')}</span>` : ''}</td>
+                  <td data-label="Dossier"><a class="app-btn app-btn-sm app-btn-outline" href="${esc(r.url)}">Ouvrir</a></td>
+                </tr>`).join('') || `<tr><td colspan="8" style="text-align:center;padding:30px;color:var(--texte-clair);">Aucune réservation pour ces critères.</td></tr>`}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    // ---------- Fiche rapide / détail d'un jour ----------
+    function openDrawer(html) {
+      drawer.innerHTML = `<button type="button" class="pl-drawer-close" id="drawerClose" aria-label="Fermer">✕</button>${html}`;
+      drawer.hidden = false; backdrop.hidden = false;
+      document.body.classList.add('pl-noscroll');
+      drawer.querySelectorAll('[data-res]').forEach(b => b.addEventListener('click', () => showReservation(b.dataset.res)));
+      document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+      document.getElementById('drawerClose').focus();
+    }
+    function closeDrawer() {
+      drawer.hidden = true; backdrop.hidden = true;
+      document.body.classList.remove('pl-noscroll');
+    }
+    backdrop.addEventListener('click', closeDrawer);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape' && !drawer.hidden) closeDrawer(); });
+
+    function showReservation(key) {
+      const r = reservations.find(x => x.key === key);
+      if (!r) return;
+      const t = typeInfo(r.type);
+      const row = (label, value) => `<div class="pl-dl-row"><dt>${label}</dt><dd>${value}</dd></div>`;
+      const nights = isPlaceable(r) ? diffDays(r.debut, r.fin) : null;
+      openDrawer(`
+        <h2 id="drawerTitle">${esc(r.nom)}</h2>
+        ${r.numero ? `<p class="pl-muted" style="margin:-8px 0 12px;">${esc(r.numero)}</p>` : ''}
+        <dl class="pl-dl">
+          ${row('Type', `${typeTag(r)} <span class="pl-muted">${esc(t.label)}</span>`)}
+          ${row(r.type === 'group' ? 'Formule' : 'Programme', esc(r.programme))}
+          ${row('Arrivée', `${r.debut ? esc(formatShort(r.debut).replace(/\/(\d\d)$/, '/20$1')) : '<span class="pl-warn">non renseignée</span>'}${r.heureArrivee ? ` – ${esc(r.heureArrivee)}` : ''}`)}
+          ${row('Départ', `${r.fin ? esc(formatShort(r.fin).replace(/\/(\d\d)$/, '/20$1')) : '<span class="pl-warn">non renseigné</span>'}${r.heureDepart ? ` – ${esc(r.heureDepart)}` : ''}`)}
+          ${nights !== null ? row('Durée', `${nights + 1} jour${nights ? 's' : ''} · ${nights} nuit${nights > 1 ? 's' : ''}${r.datesIndicatives ? ' <span class="pl-muted">(dates indicatives, non confirmées)</span>' : ''}`) : ''}
+          ${row('Effectif', r.effectif.details.length ? r.effectif.details.map(d => `${d.n} ${esc(d.label)}`).join('<br/>') : '<span class="pl-warn">non renseigné</span>')}
+          ${row('Total', r.effectif.total !== null ? `<strong>${r.effectif.total} personne${r.effectif.total > 1 ? 's' : ''}</strong><br/><span class="pl-muted" style="font-size:.78rem;">${esc(r.effectif.source)}</span>` : '<span class="pl-warn">Effectif : non renseigné</span>')}
+          ${row('Statut', `${statutBadge(r)}<br/><span class="pl-muted" style="font-size:.8rem;">${esc(STATUT_GROUP_LABELS[r.statutGroup] || '')}</span>${r.cancelledAt ? `<br/><span class="pl-muted" style="font-size:.8rem;">${r.cancelledAtApprox ? 'Dernière modification' : 'Annulé'} le ${new Date(r.cancelledAt).toLocaleString('fr-FR', { timeZone: 'Indian/Reunion' })}</span>` : ''}${r.archived ? '<br/><span class="app-badge app-badge-gray">📦 Dossier archivé</span>' : ''}`)}
+          ${r.contact || r.contactTel || r.contactEmail ? row('Contact', esc([r.contact, r.contactTel, r.contactEmail].filter(Boolean).join(' · '))) : ''}
+          ${r.commune ? row('Commune', esc(r.commune)) : ''}
+        </dl>
+        ${reservationIssues(r).length && r.statutGroup === 'validee' ? `<div class="app-msg app-msg-error">${reservationIssues(r).map(i => '⚠ ' + esc(i.text)).join('<br/>')}</div>` : ''}
+        <a class="app-btn" href="${esc(r.url)}" style="width:100%;text-align:center;">Ouvrir le dossier</a>`);
+    }
+
+    function showDay(iso) {
+      const list = filtered().filter(isPlaceable).filter(r => r.debut <= iso && r.fin >= iso);
+      const total = list.reduce((s, r) => s + (r.effectif.total || 0), 0);
+      const unknown = list.filter(r => r.effectif.total === null).length;
+      openDrawer(`
+        <h2 id="drawerTitle">${esc(formatLong(iso))}</h2>
+        ${list.length ? `
+          <ul class="pl-day-list">
+            ${sortByArrival(list).map(r => `
+              <li><button type="button" class="${resClasses(r)} pl-agenda-card" data-res="${esc(r.key)}">
+                <span class="pl-agenda-name">${esc(r.nom)}</span>
+                <span class="pl-agenda-meta">${typeInfo(r.type).icon} ${esc(typeInfo(r.type).short)} · ${esc(formatRange(r.debut, r.fin))}${r.debut === iso ? ' · <strong>arrivée</strong>' : ''}${r.fin === iso ? ' · <strong>départ</strong>' : ''}</span>
+                <span class="pl-agenda-meta">${r.effectif.total !== null ? `${r.effectif.total} personnes` : 'Effectif non renseigné'}</span>
+              </button></li>`).join('')}
+          </ul>
+          <div class="pl-day-sum">
+            <span>Total prévisionnel</span>
+            <strong>${total} personne${total > 1 ? 's' : ''}</strong>
+          </div>
+          ${unknown ? `<p class="pl-warn" style="font-size:.85rem;">+ ${unknown} séjour${unknown > 1 ? 's' : ''} sans effectif renseigné (non compté${unknown > 1 ? 's' : ''}).</p>` : ''}
+          ${list.length > 1 ? '<p class="pl-muted" style="font-size:.82rem;">Plusieurs groupes présents simultanément.</p>' : ''}
+          ${state.statut !== 'validee' ? '<p class="pl-muted" style="font-size:.82rem;">Attention : le filtre de statut actif inclut des séjours non validés.</p>' : ''}`
+        : '<p class="pl-muted">Aucun séjour ce jour-là pour les filtres actifs.</p>'}`);
+    }
+
+    // ---------- Événements ----------
+    function bind() {
+      root.querySelectorAll('[data-year]').forEach(b => b.addEventListener('click', () => changeYear(Number(b.dataset.year))));
+      const ys = document.getElementById('yearSelect');
+      if (ys) ys.addEventListener('change', () => changeYear(Number(ys.value)));
+      root.querySelectorAll('[data-view]').forEach(t => {
+        const go = () => { state.view = t.dataset.view; render(); };
+        t.addEventListener('click', go);
+        t.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+      });
+      root.querySelectorAll('[data-statut]').forEach(b => b.addEventListener('click', () => { state.statut = b.dataset.statut; render(); }));
+      root.querySelectorAll('[data-calmode]').forEach(b => b.addEventListener('click', () => { state.calMode = b.dataset.calmode; render(); }));
+      root.querySelectorAll('[data-open-month]').forEach(b => b.addEventListener('click', () => { state.calMode = 'mois'; state.monthKey = b.dataset.openMonth; render(); }));
+      root.querySelectorAll('[data-month-step]').forEach(b => b.addEventListener('click', () => stepMonth(Number(b.dataset.monthStep))));
+      root.querySelectorAll('[data-res]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); showReservation(b.dataset.res); }));
+      root.querySelectorAll('[data-day]').forEach(b => b.addEventListener('click', () => showDay(b.dataset.day)));
+      root.querySelectorAll('[data-sort]').forEach(b => b.addEventListener('click', () => {
+        const key = b.dataset.sort;
+        state.sort = state.sort.key === key ? { key, dir: -state.sort.dir } : { key, dir: 1 };
+        render();
+      }));
+      const tf = document.getElementById('typeFilter');
+      if (tf) tf.addEventListener('change', () => { state.type = tf.value; render(); });
+      const lm = document.getElementById('listMonth');
+      if (lm) lm.addEventListener('change', () => { state.listMonth = lm.value; render(); });
+      const rf = document.getElementById('rangeFrom');
+      if (rf) rf.addEventListener('change', () => { state.rangeFrom = rf.value; render(); });
+      const rt = document.getElementById('rangeTo');
+      if (rt) rt.addEventListener('change', () => { state.rangeTo = rt.value; render(); });
+      const si = document.getElementById('searchInput');
+      if (si) {
+        let timer;
+        si.addEventListener('input', () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => {
+            state.search = si.value;
+            const pos = si.selectionStart;
+            render();
+            const again = document.getElementById('searchInput');
+            again.focus();
+            again.setSelectionRange(pos, pos);
+          }, 200);
+        });
+      }
+    }
+
+    function changeYear(startYear) {
+      if (!startYear || startYear === state.startYear) return;
+      state.startYear = startYear;
+      state.monthKey = null;
+      state.listMonth = 'all';
+      loadYear();
+    }
+
+    // Navigation mois par mois, en passant d'une année d'exploitation à
+    // l'autre aux bornes (septembre → octobre suivant).
+    function stepMonth(step) {
+      const y = year();
+      const idx = y.months.findIndex(m => m.key === state.monthKey) + step;
+      if (idx < 0 || idx > 11) {
+        const target = operatingYear(state.startYear + step);
+        state.startYear = target.startYear;
+        state.monthKey = idx < 0 ? target.months[11].key : target.months[0].key;
+        state.listMonth = 'all';
+        loadYear();
+        return;
+      }
+      state.monthKey = y.months[idx].key;
+      render();
+    }
+
+    init();
+  </script>
+</body>
+</html>

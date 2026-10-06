@@ -197,3 +197,133 @@ table.app-table a.row-link { color: var(--vert-fonce); font-weight: 700; }
 .app-overview-val { flex:1; min-width:200px; font-size:.9rem; }
 .app-field input[readonly], .app-field textarea[readonly] { background: var(--gris-clair); color: var(--texte-clair); cursor: not-allowed; }
 .app-toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 1000; max-width: min(560px, calc(100vw - 32px)); box-shadow: var(--ombre-forte); }
+
+/* ===== Planning & Réservations (Admin) ===== */
+/* Couleurs par type : toujours doublées d'une icône et d'un libellé. */
+.pl-head-row { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; }
+.pl-yearnav { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.pl-yearnav select { padding:7px 10px; border:2px solid var(--vert-fonce); border-radius:var(--radius-sm); font-weight:700; color:var(--vert-fonce); font-family:'Lato',sans-serif; background:var(--blanc); }
+.pl-sub { color:var(--texte-clair); font-size:.88rem; margin:10px 0 14px; }
+.pl-muted { color:var(--texte-clair); }
+.pl-warn { color:#a5650e; font-weight:700; }
+.pl-kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; }
+.pl-count { background:#fbeedd; color:#a5650e; border-radius:20px; padding:2px 10px; font-size:.85rem; vertical-align:middle; }
+.pl-tocomplete { border-left:6px solid var(--or); }
+.pl-tc-list { list-style:none; }
+.pl-tc-list li { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:10px 0; border-bottom:1px solid var(--beige-fonce); flex-wrap:wrap; }
+.pl-tc-list li:last-child { border-bottom:none; }
+.pl-issue { font-size:.85rem; margin-top:3px; }
+.pl-issue-dates { color:#a5230e; font-weight:700; }
+.pl-issue-effectif { color:#a5650e; }
+.pl-filters .app-filters { margin-bottom:12px; }
+.pl-filters button.app-chip { font-family:'Lato',sans-serif; }
+.pl-inline { display:inline-flex; align-items:center; gap:6px; font-size:.85rem; font-weight:700; color:var(--texte-clair); }
+.pl-search { flex:1; min-width:220px; }
+.pl-linkbtn { background:none; border:none; padding:0; color:var(--vert-fonce); font-weight:700; text-decoration:underline; cursor:pointer; font:inherit; }
+
+.pl-type-school, .pl-res-school, .pl-mark-school { --pl-bg:#e3efdc; --pl-bd:#2d5a27; --pl-fg:#22451e; }
+.pl-type-group, .pl-res-group, .pl-mark-group { --pl-bg:#f6e9cc; --pl-bd:#a5650e; --pl-fg:#6b420a; }
+.pl-type-colony, .pl-res-colony, .pl-mark-colony { --pl-bg:#dde9f6; --pl-bd:#2a5e88; --pl-fg:#1d4566; }
+.pl-type { display:inline-block; padding:2px 9px; border-radius:20px; font-size:.75rem; font-weight:700; white-space:nowrap; border:1px solid var(--pl-bd); background:var(--pl-bg); color:var(--pl-fg); }
+.pl-res { background:var(--pl-bg); color:var(--pl-fg); border:1px solid var(--pl-bd); border-left-width:4px; cursor:pointer; font-family:'Lato',sans-serif; text-align:left; }
+.pl-res:hover, .pl-res:focus-visible { filter:brightness(.95); outline:2px solid var(--pl-bd); outline-offset:1px; }
+.pl-indicatif { border-style:dashed; background:repeating-linear-gradient(135deg, var(--pl-bg) 0 6px, var(--blanc) 6px 10px); }
+.pl-st-annulee, .pl-st-refusee { opacity:.7; text-decoration:line-through; }
+.pl-row-cancel td { color:var(--texte-clair); }
+
+.pl-legend { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+.pl-legend-item { padding:3px 10px; border-radius:6px; font-size:.78rem; font-weight:700; cursor:default; }
+.pl-cal-toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+
+/* Vue Année : 12 mini-mois + liste compacte des séjours de chaque mois */
+.pl-year { display:grid; grid-template-columns:repeat(4, 1fr); gap:16px; }
+@media (max-width: 1100px) { .pl-year { grid-template-columns:repeat(3, 1fr); } }
+@media (max-width: 900px) { .pl-year { grid-template-columns:repeat(2, 1fr); } }
+.pl-mini { border:1px solid var(--beige-fonce); border-radius:var(--radius-sm); padding:10px; background:var(--blanc); min-width:0; }
+.pl-mini-title { background:none; border:none; cursor:pointer; font-family:'Playfair Display',serif; font-weight:700; color:var(--vert-fonce); font-size:1rem; padding:0 0 6px; text-align:left; width:100%; }
+.pl-mini-title:hover { text-decoration:underline; }
+.pl-mini-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:2px; }
+.pl-mini-wd { font-size:.65rem; color:var(--texte-clair); text-align:center; font-weight:700; }
+.pl-mini-day { position:relative; aspect-ratio:1; border:none; background:var(--gris-clair); border-radius:4px; font-size:.72rem; color:var(--texte); cursor:pointer; padding:0; display:flex; align-items:center; justify-content:center; font-family:'Lato',sans-serif; }
+.pl-mini-day.pl-empty { background:none; cursor:default; }
+.pl-mini-day.pl-occ-1 { background:#d6e7cf; font-weight:700; }
+.pl-mini-day.pl-occ-2 { background:#b5d3a8; font-weight:700; }
+.pl-mini-day.pl-occ-3 { background:#8fbb7e; font-weight:700; color:#fff; }
+.pl-mini-day.pl-today { outline:2px solid var(--or); }
+.pl-mini-marks { display:flex; gap:1px; position:absolute; bottom:2px; left:3px; right:3px; }
+.pl-mark { flex:1; height:3px; border-radius:2px; background:var(--pl-bd); }
+.pl-mini-list { list-style:none; margin-top:8px; display:flex; flex-direction:column; gap:4px; }
+.pl-mini-res { width:100%; font-size:.74rem; padding:3px 6px; border-radius:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.pl-mini-dates { font-weight:700; }
+
+/* Vue Mois : semaines lundi → dimanche, séjours en barres continues */
+.pl-monthnav { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; }
+.pl-monthnav h3 { margin:0; text-transform:capitalize; color:var(--vert-fonce); font-family:'Playfair Display',serif; font-size:1.3rem; }
+.pl-month { border:1px solid var(--beige-fonce); border-radius:var(--radius-sm); overflow:hidden; }
+.pl-wd-row { display:grid; grid-template-columns:repeat(7, 1fr); background:var(--beige); }
+.pl-wd-row > span { padding:6px; font-size:.75rem; font-weight:700; color:var(--brun); text-transform:uppercase; text-align:center; }
+.pl-wd-short { display:none; }
+/* Ligne 1 = numéros/totaux des jours ; lignes suivantes = un couloir par séjour simultané. */
+.pl-week { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); grid-template-rows:52px repeat(var(--lanes, 0), 26px) 10px; border-top:1px solid var(--beige-fonce); min-height:96px; }
+.pl-day { grid-row:1 / -1; border:none; border-right:1px solid var(--beige-fonce); background:var(--blanc); padding:4px 6px; display:flex; flex-direction:column; align-items:flex-start; justify-content:flex-start; gap:1px; cursor:pointer; font-family:'Lato',sans-serif; text-align:left; min-width:0; color:var(--texte); }
+.pl-day:nth-child(7) { border-right:none; }
+.pl-day:hover { background:var(--gris-clair); }
+.pl-day.pl-out { background:#faf8f4; color:#aaa; }
+.pl-day.pl-multi { background:#f3f8f0; }
+.pl-day.pl-today .pl-day-num { background:var(--or); color:#fff; border-radius:50%; width:22px; height:22px; display:inline-flex; align-items:center; justify-content:center; }
+.pl-day-num { font-weight:700; font-size:.85rem; }
+.pl-day-total { font-size:.72rem; font-weight:700; color:var(--vert-fonce); }
+.pl-day-groups { font-size:.68rem; color:var(--texte-clair); }
+.pl-day-more { font-size:.68rem; font-weight:700; color:#a5650e; }
+.pl-bar { position:relative; z-index:1; margin:2px 3px; padding:0 6px; border-radius:5px; font-size:.75rem; font-weight:700; white-space:nowrap; overflow:hidden; display:flex; align-items:center; gap:4px; min-width:0; }
+.pl-bar-text { overflow:hidden; text-overflow:ellipsis; }
+.pl-bar.pl-cont-before { border-top-left-radius:0; border-bottom-left-radius:0; margin-left:0; border-left-width:1px; }
+.pl-bar.pl-cont-after { border-top-right-radius:0; border-bottom-right-radius:0; margin-right:0; }
+
+.pl-agenda { display:none; margin-top:16px; }
+.pl-agenda h4 { color:var(--vert-fonce); margin-bottom:8px; font-size:.95rem; }
+.pl-agenda-card { display:flex; flex-direction:column; gap:2px; width:100%; padding:10px 12px; border-radius:var(--radius-sm); margin-bottom:8px; }
+.pl-agenda-name { font-weight:700; font-size:.95rem; }
+.pl-agenda-meta { font-size:.82rem; }
+
+/* Liste */
+.pl-sort { background:none; border:none; font:inherit; color:inherit; text-transform:inherit; letter-spacing:inherit; cursor:pointer; padding:0; font-weight:700; }
+.pl-table td { vertical-align:top; }
+
+/* Fiche rapide (panneau latéral ; feuille du bas sur téléphone) */
+.pl-drawer-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:900; }
+.pl-drawer { position:fixed; top:0; right:0; bottom:0; width:min(440px, 100%); background:var(--blanc); z-index:901; box-shadow:var(--ombre-forte); padding:26px 24px 30px; overflow-y:auto; }
+.pl-drawer[hidden], .pl-drawer-backdrop[hidden] { display:none; }
+.pl-drawer h2 { color:var(--vert-fonce); font-size:1.35rem; margin:0 36px 12px 0; }
+.pl-drawer-close { position:absolute; top:16px; right:16px; background:var(--beige); border:none; border-radius:50%; width:34px; height:34px; cursor:pointer; font-size:1rem; }
+.pl-dl { margin:0 0 18px; }
+.pl-dl-row { display:grid; grid-template-columns:110px 1fr; gap:10px; padding:9px 0; border-bottom:1px solid var(--beige-fonce); font-size:.9rem; }
+.pl-dl-row dt { font-size:.72rem; font-weight:700; color:var(--brun); text-transform:uppercase; letter-spacing:.04em; padding-top:2px; }
+.pl-dl-row dd { margin:0; }
+.pl-day-list { list-style:none; }
+.pl-day-sum { display:flex; justify-content:space-between; align-items:center; background:var(--beige); border-radius:var(--radius-sm); padding:12px 14px; margin:6px 0 10px; }
+.pl-day-sum strong { color:var(--vert-fonce); font-size:1.15rem; }
+body.pl-noscroll { overflow:hidden; }
+
+@media (max-width: 720px) {
+  .pl-hide-xs { display:none; }
+  .pl-yearnav { width:100%; justify-content:space-between; }
+  .pl-yearnav .app-btn { padding:6px 8px; }
+  .pl-wd-long { display:none; }
+  .pl-wd-short { display:inline; }
+  .pl-week { grid-template-rows:40px repeat(var(--lanes, 0), 7px) 4px; min-height:56px; }
+  .pl-bar { margin:1px 0; padding:0; border-width:0; border-radius:2px; background:var(--pl-bd); }
+  .pl-bar > * { display:none; }
+  .pl-day { padding:3px; }
+  .pl-day-total { font-size:.62rem; }
+  .pl-day-groups, .pl-day-more { display:none; }
+  .pl-agenda { display:block; }
+  .pl-drawer { top:auto; max-height:88vh; width:100%; border-radius:var(--radius) var(--radius) 0 0; }
+  /* Tableau → cartes lisibles */
+  table.pl-table { min-width:0; }
+  .pl-table thead { display:none; }
+  .pl-table tr { display:block; border:1px solid var(--beige-fonce); border-radius:var(--radius-sm); margin-bottom:10px; padding:6px 10px; }
+  .pl-table td { display:flex; justify-content:space-between; gap:10px; padding:5px 0; border-bottom:none; text-align:right; }
+  .pl-table td::before { content:attr(data-label); font-size:.72rem; font-weight:700; color:var(--brun); text-transform:uppercase; text-align:left; }
+  .pl-search { min-width:0; width:100%; }
+}

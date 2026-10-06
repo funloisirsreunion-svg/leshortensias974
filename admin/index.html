@@ -38,9 +38,9 @@
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
 
-    // Après connexion, retour vers le dossier demandé (uniquement dossier.html?id=<uuid>, jamais d'URL libre).
+    // Après connexion, retour vers la page demandée (uniquement dossier.html?id=<uuid> ou planning.html, jamais d'URL libre).
     const nextParam = new URLSearchParams(window.location.search).get('next') || '';
-    const afterLogin = /^dossier\.html\?id=[0-9a-fA-F-]{36}$/.test(nextParam) ? nextParam : 'dashboard.html';
+    const afterLogin = /^dossier\.html\?id=[0-9a-fA-F-]{36}$/.test(nextParam) || /^planning\.html(\?[A-Za-z0-9=&_-]*)?$/.test(nextParam) ? nextParam : 'dashboard.html';
 
     const msgBox = document.getElementById('msgBox');
     const form = document.getElementById('loginForm');
