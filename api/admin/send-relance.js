@@ -2,11 +2,14 @@ import { Resend } from 'resend';
 import { getSupabaseAdmin } from '../../lib/supabaseAdmin.js';
 import { requireAdmin, hasPermission, dossierPermission } from '../../lib/requireAdmin.js';
 import { shouldEmailForDocument, buildDocumentAddedSubject, buildDocumentAddedHtml } from '../../lib/documentAddedEmail.js';
+import { handleFicheOperationnelle } from '../../lib/ficheSend.js';
 
 // Endpoint unique pour les e-mails déclenchés par l'admin depuis la fiche
 // dossier : relance générique, document ajouté (devis/facture/facture finale
 // uniquement — §10), document refusé (§21). Regroupés dans un seul fichier
 // pour rester sous la limite de 12 fonctions serverless du plan Vercel Hobby.
+// kind = 'fiche_operationnelle' : envoi de la fiche opérationnelle de séjour à
+// l'équipe du centre (voir lib/ficheSend.js).
 
 function esc(str) {
   return String(str ?? '').replace(/[&<>"']/g, (c) => ({
@@ -18,15 +21,15 @@ function siteUrl() {
   return process.env.SITE_URL || 'https://leshortensias974.fr';
 }
 
-async function sendMail({ to, subject, html }) {
+async function sendMail({ to, subject, html, attachments }) {
   if (!process.env.RESEND_API_KEY) return { sent: false, error: 'RESEND_API_KEY non configuré.' };
   try {
     const resend = new Resend(process.env.RESEND_API_KEY);
     const from = process.env.EMAIL_FROM
       || (process.env.RESEND_EMAIL_DOMAIN ? `Fun Loisirs Réunion <inscriptions@${process.env.RESEND_EMAIL_DOMAIN}>` : 'Fun Loisirs Réunion <onboarding@resend.dev>');
-    const { error } = await resend.emails.send({ from, to, subject, html });
+    const { data, error } = await resend.emails.send({ from, to, subject, html, ...(attachments ? { attachments } : {}) });
     if (error) throw new Error(error.message || JSON.stringify(error));
-    return { sent: true, error: null };
+    return { sent: true, error: null, id: data?.id || null };
   } catch (error) {
     return { sent: false, error: error.message };
   }
@@ -50,6 +53,9 @@ export default async function handler(req, res) {
   const { data: dossier, error: dossierError } = await supabaseAdmin
     .from('dossiers').select('*').eq('id', dossierId).single();
   if (dossierError || !dossier) return res.status(404).json({ error: 'Dossier introuvable.' });
+  if (kind === 'fiche_operationnelle') {
+    return handleFicheOperationnelle({ req, res, auth, dossier, supabaseAdmin, sendMail });
+  }
   if (!hasPermission(auth, dossierPermission(dossier.client_type, 'edit'))) {
     return res.status(403).json({ error: 'Votre rôle ne permet pas cette action sur ce dossier.' });
   }

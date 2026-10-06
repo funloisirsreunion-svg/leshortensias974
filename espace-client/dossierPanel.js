@@ -13,11 +13,14 @@ import {
   blocState, isLockedForClient, renderBlocStatusPanel, renderBlocHistory, renderDocumentHistory,
   renderDocumentDates, formatDateTimeFr,
 } from '../lib/blocValidation.js';
+import { effectifsFrom, coherenceErrors } from '../lib/ficheOperationnelle.js';
+
+const SPLIT_FIELDS = ['effectif_filles', 'effectif_garcons', 'effectif_profs_femmes', 'effectif_profs_hommes', 'effectif_accomp_femmes', 'effectif_accomp_hommes'];
 
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
 export async function mountDossierPanel({ container, supabase, dossierId, onChange }) {
-  let dossier, regimes, documents;
+  let dossier, regimes, documents, allergies = [];
   let blocs = [], blocVersions = [], blocEvents = [], docVersions = [];
   let flash = null; // message à réafficher après rechargement : { bloc, text, type }
 
@@ -39,6 +42,8 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
       supabase.from('dossier_bloc_events').select('*').eq('dossier_id', dossierId).order('created_at'),
       supabase.from('document_versions').select('*').eq('dossier_id', dossierId).order('archived_at'),
     ]);
+    const { data: al } = await supabase.from('dossier_allergies').select('*').eq('dossier_id', dossierId).order('created_at');
+    allergies = al || [];
     container.style.minHeight = '';
     if (dErr || !d) {
       container.innerHTML = `<div class="app-msg app-msg-error">Ce dossier n'existe pas ou vous n'y avez pas accès.</div>`;
@@ -198,6 +203,17 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
             <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_def_profs" value="${dossier.effectif_def_profs ?? ''}" ${ro('effectifs')} /></div>
             <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_def_accompagnateurs" value="${dossier.effectif_def_accompagnateurs ?? ''}" ${ro('effectifs')} /></div>
           </div>
+          <h4>Répartition (pour préparer les couchages)</h4>
+          <p style="font-size:.8rem;color:var(--texte-clair);margin:-4px 0 10px;">Sur l'effectif définitif s'il est renseigné, sinon sur le prévisionnel.</p>
+          <div class="app-grid-2">
+            <div class="app-field"><label>Élèves — dont filles</label><input type="number" min="0" name="effectif_filles" value="${dossier.effectif_filles ?? ''}" ${ro('effectifs')} /></div>
+            <div class="app-field"><label>Élèves — dont garçons</label><input type="number" min="0" name="effectif_garcons" value="${dossier.effectif_garcons ?? ''}" ${ro('effectifs')} /></div>
+            <div class="app-field"><label>Professeurs — dont femmes</label><input type="number" min="0" name="effectif_profs_femmes" value="${dossier.effectif_profs_femmes ?? ''}" ${ro('effectifs')} /></div>
+            <div class="app-field"><label>Professeurs — dont hommes</label><input type="number" min="0" name="effectif_profs_hommes" value="${dossier.effectif_profs_hommes ?? ''}" ${ro('effectifs')} /></div>
+            <div class="app-field"><label>Accompagnateurs — dont femmes</label><input type="number" min="0" name="effectif_accomp_femmes" value="${dossier.effectif_accomp_femmes ?? ''}" ${ro('effectifs')} /></div>
+            <div class="app-field"><label>Accompagnateurs — dont hommes</label><input type="number" min="0" name="effectif_accomp_hommes" value="${dossier.effectif_accomp_hommes ?? ''}" ${ro('effectifs')} /></div>
+          </div>
+          <div class="js-eff-check" aria-live="polite"></div>
           <div class="app-bloc-actions">
             ${locked('effectifs') ? '' : '<button type="submit" class="app-btn app-btn-outline">Enregistrer</button>'}
             ${blocActionsHtml('effectifs')}
@@ -232,7 +248,13 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
               return `<div class="app-field"><label>${r.label}</label><input type="number" min="0" name="regime_${r.value}" value="${row ? row.nombre : 0}" ${ro('regimes')} /></div>`;
             }).join('')}
           </div>
-          ${isSchool() ? `<div class="app-field"><label>Remarques alimentaires / allergies</label><textarea name="remarques_alimentaires" rows="3" ${ro('regimes')}>${esc(dossier.remarques_alimentaires)}</textarea></div>` : ''}
+          ${isSchool() ? `
+          <div class="app-field"><label>Précisions « Autre »</label><input type="text" name="regime_precisions_autre" maxlength="200" placeholder="Ex. : sans fruits de mer" value="${esc((regimes.find(x => x.type === 'autre') || {}).precisions)}" ${ro('regimes')} /></div>
+          <h4 style="color:#a5230e;">⚠ Allergies alimentaires</h4>
+          <p style="font-size:.8rem;color:var(--texte-clair);margin:-4px 0 10px;">Une ligne par allergène (ex. arachide : 1 personne).</p>
+          <div class="js-allergies">${allergies.map(a => allergieRow(a)).join('')}</div>
+          ${locked('regimes') ? '' : '<button type="button" class="app-btn app-btn-sm app-btn-outline js-add-allergie" style="margin-bottom:14px;">+ Ajouter une allergie</button>'}
+          <div class="app-field"><label>Remarques alimentaires</label><textarea name="remarques_alimentaires" rows="3" ${ro('regimes')}>${esc(dossier.remarques_alimentaires)}</textarea></div>` : ''}
           <div class="app-bloc-actions">
             ${locked('regimes') ? '' : `<button type="submit" class="app-btn${isSchool() ? ' app-btn-outline' : ''}">Enregistrer les régimes</button>`}
             ${blocActionsHtml('regimes')}
@@ -291,6 +313,11 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
     `;
 
     bindSave('effectifs', 'Enregistré.');
+    const effForm = container.querySelector('.js-eff-check') && container.querySelector('.js-eff-check').closest('form');
+    if (effForm) { effForm.addEventListener('input', () => renderEffCheck(effForm)); renderEffCheck(effForm); }
+    const addAl = container.querySelector('.js-add-allergie');
+    if (addAl) addAl.addEventListener('click', () => { container.querySelector('.js-allergies').insertAdjacentHTML('beforeend', allergieRow()); bindAllergieDelete(); });
+    bindAllergieDelete();
     bindSave('regimes', 'Régimes alimentaires enregistrés.');
     bindSave('coordonnees', 'Coordonnées enregistrées.');
     container.querySelectorAll('[data-bloc-confirm]').forEach(btn => btn.addEventListener('click', onConfirmBloc));
@@ -337,6 +364,7 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
         effectif_def_eleves: fd.get('effectif_def_eleves') ? Number(fd.get('effectif_def_eleves')) : null,
         effectif_def_profs: fd.get('effectif_def_profs') ? Number(fd.get('effectif_def_profs')) : null,
         effectif_def_accompagnateurs: fd.get('effectif_def_accompagnateurs') ? Number(fd.get('effectif_def_accompagnateurs')) : null,
+        ...Object.fromEntries(SPLIT_FIELDS.map(k => [k, fd.get(k) !== '' && fd.get(k) !== null ? Number(fd.get(k)) : null])),
       };
     }
     const { error } = await supabase.from('dossiers').update(payload).eq('id', dossier.id);
@@ -358,7 +386,69 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
         .update({ remarques_alimentaires: fd.get('remarques_alimentaires') || null }).eq('id', dossier.id);
       if (error) return error;
     }
+    if (fd.has('regime_precisions_autre')) {
+      const autre = regimes.find(x => x.type === 'autre');
+      const prec = (fd.get('regime_precisions_autre') || '').trim() || null;
+      if (autre && (autre.precisions || null) !== prec) {
+        const { error } = await supabase.from('regimes_alimentaires').update({ precisions: prec }).eq('id', autre.id);
+        if (error) return error;
+      }
+    }
+    return saveAllergies();
+  }
+
+  function allergieRow(a = {}) {
+    const r = locked('regimes') ? 'readonly' : '';
+    return `<div class="app-grid-3 js-allergie" data-id="${esc(a.id || '')}" style="align-items:end;">
+      <div class="app-field"><label>Allergène</label><input type="text" class="js-al-nom" maxlength="80" value="${esc(a.allergene)}" placeholder="Ex. : arachide" ${r} /></div>
+      <div class="app-field"><label>Personnes</label><input type="number" min="1" class="js-al-nb" value="${a.nombre ?? 1}" ${r} /></div>
+      <div class="app-field" style="display:flex;gap:8px;align-items:end;"><div style="flex:1;"><label>Précisions</label><input type="text" class="js-al-prec" maxlength="200" value="${esc(a.precisions)}" ${r} /></div>${r ? '' : '<button type="button" class="app-btn app-btn-sm app-btn-outline js-al-del" title="Retirer" style="margin-bottom:2px;">✕</button>'}</div>
+    </div>`;
+  }
+
+  function bindAllergieDelete() {
+    container.querySelectorAll('.js-al-del').forEach(b => { b.onclick = () => b.closest('.js-allergie').remove(); });
+  }
+
+  async function saveAllergies() {
+    const rows = [...container.querySelectorAll('.js-allergie')].map(el => ({
+      id: el.dataset.id || null,
+      allergene: el.querySelector('.js-al-nom').value.trim(),
+      nombre: Math.max(1, Number(el.querySelector('.js-al-nb').value) || 1),
+      precisions: el.querySelector('.js-al-prec').value.trim() || null,
+    })).filter(r => r.allergene);
+    const keep = new Set(rows.filter(r => r.id).map(r => r.id));
+    for (const old of allergies) {
+      if (!keep.has(old.id)) {
+        const { error } = await supabase.from('dossier_allergies').delete().eq('id', old.id);
+        if (error) return error;
+      }
+    }
+    for (const r of rows) {
+      const old = allergies.find(a => a.id === r.id);
+      if (!old) {
+        const { error } = await supabase.from('dossier_allergies').insert({ dossier_id: dossier.id, allergene: r.allergene, nombre: r.nombre, precisions: r.precisions });
+        if (error) return error;
+      } else if (old.allergene !== r.allergene || old.nombre !== r.nombre || (old.precisions || null) !== r.precisions) {
+        const { error } = await supabase.from('dossier_allergies').update({ allergene: r.allergene, nombre: r.nombre, precisions: r.precisions }).eq('id', r.id);
+        if (error) return error;
+      }
+    }
     return null;
+  }
+
+  function renderEffCheck(form) {
+    const box = container.querySelector('.js-eff-check');
+    if (!box) return;
+    const fd = new FormData(form);
+    const src = {};
+    ['effectif_prev_eleves', 'effectif_prev_profs', 'effectif_prev_accompagnateurs', 'effectif_def_eleves', 'effectif_def_profs', 'effectif_def_accompagnateurs', ...SPLIT_FIELDS]
+      .forEach(k => { src[k] = fd.get(k) === '' ? null : fd.get(k); });
+    const e = effectifsFrom(src);
+    const errs = coherenceErrors(e);
+    box.innerHTML = `<p style="background:var(--beige);border-radius:8px;padding:8px 12px;font-size:.88rem;margin:4px 0 8px;"><strong>Total groupe : ${e.total ?? '—'}</strong> · Enfants : ${e.totalEnfants ?? '—'} · Adultes : ${e.totalAdultes ?? '—'}</p>`
+      + errs.map(m => `<div class="app-msg app-msg-error" style="margin:6px 0;">⚠ ${esc(m)}</div>`).join('')
+      + (errs.length ? '<p style="font-size:.8rem;color:var(--texte-clair);">Les effectifs ne pourront pas être confirmés tant que la répartition est incohérente.</p>' : '');
   }
 
   async function saveCoordonnees(form) {
