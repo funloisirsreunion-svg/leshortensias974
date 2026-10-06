@@ -120,6 +120,13 @@ async function fetchOpenColonyStays() {
       colonieSelect.appendChild(opt);
     });
     colonieSelect.disabled = false;
+    // Séjour choisi depuis la page Colonies (inscription.html?sejour=<id>) :
+    // présélectionné, le parent peut toujours en choisir un autre.
+    const sejourDemande = new URLSearchParams(window.location.search).get('sejour');
+    if (sejourDemande && COLONIES.some(c => c.id === sejourDemande)) {
+      colonieSelect.value = sejourDemande;
+      colonieSelect.dispatchEvent(new Event('change'));
+    }
   })();
 
   // ── Info colonie dynamique ─────────────────────────────────

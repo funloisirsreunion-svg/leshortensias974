@@ -625,3 +625,11 @@ img { max-width:100%; display:block; }
   box-shadow: 0 8px 32px rgba(0,0,0,.15);
   background: #000;
 }
+
+/* ===== Colonies : séjours disponibles (chargés depuis l'Admin) ===== */
+.sejours-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:24px; }
+.sejour-card { display:flex; flex-direction:column; align-items:center; }
+.sejour-nom { font-size:.82rem; letter-spacing:.08em; text-transform:uppercase; color:var(--or-clair); font-weight:700; margin-bottom:8px; }
+.sejour-dates { font-family:'Playfair Display',serif; font-size:1.45rem; font-weight:700; line-height:1.25; margin-bottom:4px; }
+.sejour-programme { margin-top:4px; padding:8px 14px; border-radius:20px; background:rgba(255,255,255,.12); font-size:.9rem; }
+.sejours-empty { text-align:center; color:var(--texte-clair); padding:24px; grid-column:1 / -1; }

@@ -58,13 +58,8 @@
   <section class="content-section bg-white">
     <div class="container">
 
-      <div class="alert-banner">
-        <span class="alert-banner-icon">🍂</span>
-        <div>
-          <strong>Colonie d'Octobre 2026 — Pré-inscriptions ouvertes !</strong>
-          Du 11 au 22 octobre 2026 · 12 jours d'aventure · Places limitées, ne tardez pas !
-        </div>
-      </div>
+      <!-- Rempli par colonies-sejours.js à partir des séjours ouverts dans l'Admin -->
+      <div class="alert-banner" id="sejoursBanner" style="display:none;"></div>
 
       <div class="two-col align-center" style="margin-bottom:48px;">
         <div>
@@ -76,18 +71,18 @@
             </div>
             <div class="highlight-card gold">
               <span class="highlight-icon">💰</span>
-              <span class="highlight-value">180 €*</span>
-              <span class="highlight-label">Reste à charge avec aide CAF/VACAF</span>
+              <span class="highlight-value">600 €</span>
+              <span class="highlight-label">Tarif public par enfant</span>
             </div>
             <div class="highlight-card">
-              <span class="highlight-icon">📅</span>
-              <span class="highlight-value">11-22 oct.</span>
-              <span class="highlight-label">Colonie Octobre 2026</span>
+              <span class="highlight-icon">🤝</span>
+              <span class="highlight-value">CAF · VACAF</span>
+              <span class="highlight-label">Pass Colo et autres aides possibles</span>
             </div>
             <div class="highlight-card">
-              <span class="highlight-icon">🗓️</span>
-              <span class="highlight-value">12 jours</span>
-              <span class="highlight-label">D'aventure et de découverte</span>
+              <span class="highlight-icon">🛏️</span>
+              <span class="highlight-value">Pension complète</span>
+              <span class="highlight-label">Hébergement au Centre Les Hortensias</span>
             </div>
           </div>
         </div>
@@ -96,32 +91,14 @@
         </div>
       </div>
 
-      <div class="two-col align-center">
-        <div>
-          <span class="section-tag">La colo · Octobre 2026</span>
-          <h2 style="font-size:clamp(1.6rem,3vw,2.2rem);color:var(--vert-fonce);margin-bottom:16px;">12 jours d'aventure à La Plaine-des-Palmistes</h2>
-          <p style="color:var(--texte-clair);margin-bottom:16px;">Pour les 6 à 14 ans, <strong>12 jours inoubliables</strong> du 11 au 22 octobre 2026, au cœur de la nature réunionnaise. Laser Game, Accro Roc, Zoo, Piscine, Parc du Colosse, randonnées… Notre équipe d'animation qualifiée encadre chaque enfant dans une atmosphère bienveillante et sécurisée.</p>
-          <p style="color:var(--texte-clair);margin-bottom:24px;">Grâce au <strong>nouveau dispositif CAF 2026</strong>, les familles bénéficiaires de l'aide CAF/VACAF peuvent obtenir jusqu'à <strong>420 € d'aide</strong>, soit un reste à charge de seulement 180 €.</p>
-          <div class="tag-list">
-            <span class="tag tag-green">✓ Aide CAF jusqu'à 420 €</span>
-            <span class="tag tag-green">✓ Pass Colo</span>
-            <span class="tag tag-gold">✓ VACAF</span>
-            <span class="tag tag-beige">Reste à charge dès 180 €</span>
-          </div>
-        </div>
-        <div class="price-box">
-          <span class="price-amount">600 €</span>
-          <span class="price-unit">tarif public · 12 jours tout compris</span>
-          <p class="price-note">Hébergement + pension complète + toutes les activités incluses</p>
-          <div style="background:rgba(200,168,75,.18);border-radius:10px;padding:14px 16px;margin:16px 0;text-align:left;">
-            <p style="color:var(--or-clair);font-weight:700;font-size:.95rem;margin-bottom:6px;">🎉 Nouveau dispositif CAF 2026</p>
-            <p class="price-note">Aide CAF/VACAF jusqu'à <strong>420 €</strong></p>
-            <p style="color:var(--or-clair);font-size:1.4rem;font-weight:700;margin:6px 0;">→ 180 € seulement*</p>
-            <p class="price-note" style="font-size:.78rem;opacity:.8;">*Pour les familles bénéficiaires de l'aide CAF/VACAF</p>
-          </div>
-          <p class="price-note">💳 Pass Colo accepté · VACAF · Autres aides possibles</p>
-          <a href="inscription.html" class="btn btn-primary" style="margin-top:20px;">Envoyer une demande d'inscription</a>
-        </div>
+      <div class="section-header" id="sejours" style="margin-bottom:24px;">
+        <span class="section-tag">Séjours disponibles</span>
+        <h2>Nos prochaines colonies</h2>
+        <p>Choisissez le séjour, puis complétez l'inscription en ligne.</p>
+      </div>
+      <div id="sejoursList" class="sejours-grid">
+        <p class="sejours-empty">Chargement des séjours disponibles…</p>
+        <noscript><p class="sejours-empty"><a href="inscription.html">Accéder au formulaire d'inscription</a></p></noscript>
       </div>
     </div>
   </section>
@@ -129,9 +106,9 @@
   <section class="content-section bg-grey">
     <div class="container">
       <div class="section-header">
-        <span class="section-tag">Programme</span>
-        <h2>Les activités du séjour</h2>
-        <p>Un séjour rythmé par des activités variées pour tous les goûts</p>
+        <span class="section-tag">Nos activités</span>
+        <h2>Exemples d'activités de nos colonies</h2>
+        <p>Activités proposées lors de nos précédents séjours. Le programme des prochaines colonies sera communiqué prochainement.</p>
       </div>
       <div class="activity-grid">
         <div class="activity-card">
@@ -213,7 +190,7 @@
           <h3>🏕️ Informations pratiques</h3>
           <div class="info-row">
             <span class="info-row-icon">📅</span>
-            <div class="info-row-text"><strong>Dates</strong><span>Du 11 au 22 octobre 2026 — 12 jours</span></div>
+            <div class="info-row-text"><strong>Dates</strong><span id="sejoursDates">Voir les séjours disponibles ci-dessus</span></div>
           </div>
           <div class="info-row">
             <span class="info-row-icon">👦</span>
@@ -242,15 +219,15 @@
         </div>
         <div>
           <span class="section-tag">Aides &amp; financement</span>
-          <h2 style="font-size:1.8rem;color:var(--vert-fonce);margin-bottom:16px;">12 jours à partir de 180 €</h2>
-          <p style="color:var(--texte-clair);margin-bottom:20px;">Grâce au <strong>nouveau dispositif CAF 2026</strong>, les familles bénéficiaires peuvent réduire considérablement le coût du séjour. Tarif public : 600 € — reste à charge avec aide : <strong>180 €</strong>.</p>
+          <h2 style="font-size:1.8rem;color:var(--vert-fonce);margin-bottom:16px;">Tarif public : 600 € par enfant</h2>
+          <p style="color:var(--texte-clair);margin-bottom:20px;">Selon votre situation, plusieurs aides peuvent réduire le coût du séjour.</p>
           <ul class="checklist">
             <li><strong>Aide CAF / VACAF</strong> — prise en charge possible selon l'éligibilité de la famille et les conditions du dispositif (jusqu'à 420 €, réservable du 01/07/26 au 31/01/27 sur votre espace CAF)</li>
             <li><strong>Pass Colo</strong> — aide nationale mobilisable pour les enfants éligibles (pass.gouv.fr)</li>
             <li><strong>Chèques-Vacances ANCV</strong> — acceptés selon les conditions applicables au séjour</li>
             <li><strong>Autres aides</strong> — commune, employeur, comité social et économique ou fonds sociaux</li>
           </ul>
-          <p class="price-note" style="margin-top:12px;">Le tarif de 600 € et le reste à charge de 180 € correspondent aux familles bénéficiant de l'aide maximale de 420 €. Aucune aide n'est garantie sans vérification préalable de votre éligibilité.</p>
+          <p class="price-note" style="margin-top:12px;">Aucune aide n'est garantie sans vérification préalable de votre éligibilité.</p>
           <a href="inscription.html" class="btn btn-green" style="margin-top:20px;">Envoyer une demande d'inscription</a>
         </div>
       </div>
@@ -260,7 +237,7 @@
   <section class="cta-section">
     <div class="container">
       <h2>Votre enfant mérite des vacances inoubliables !</h2>
-      <p>Colonie d'Octobre 2026 · Du 11 au 22 octobre · 12 jours d'aventure · Places limitées !</p>
+      <p id="sejoursCta">Colonies de vacances · Inscriptions en ligne</p>
       <div class="cta-buttons">
         <a href="inscription.html" class="btn btn-primary">Envoyer une demande d'inscription</a>
         <a href="https://wa.me/262692365838" target="_blank" rel="noopener" class="btn btn-secondary">💬 WhatsApp</a>
@@ -307,6 +284,7 @@
     ]
   }
   </script>
+  <script src="colonies-sejours.js"></script>
   <script src="analytics.js"></script>
   <script src="script.js"></script>
 </body>
