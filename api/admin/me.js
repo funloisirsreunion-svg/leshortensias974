@@ -5,7 +5,7 @@ import { buildStaffInviteSubject, buildStaffInviteHtml } from '../../lib/staffIn
 
 // GET  /api/admin/me                 → compte connecté (+ rôle et permissions).
 // GET  /api/admin/me?scope=staff     → liste des utilisateurs internes (users.manage).
-// POST /api/admin/me?scope=staff     → { action: invite | set_role | deactivate | reactivate | resend, ... }
+// POST /api/admin/me?scope=staff     → { action: invite | set_role | deactivate | reactivate | resend | reset_link, ... }
 //
 // La gestion des utilisateurs internes est regroupée ici pour rester sous la
 // limite de 12 fonctions serverless du plan Vercel Hobby. Les droits viennent
@@ -40,34 +40,46 @@ async function sendMail({ to, subject, html }) {
     const resend = new Resend(process.env.RESEND_API_KEY);
     const from = process.env.EMAIL_FROM
       || (process.env.RESEND_EMAIL_DOMAIN ? `Fun Loisirs Réunion <inscriptions@${process.env.RESEND_EMAIL_DOMAIN}>` : 'Fun Loisirs Réunion <onboarding@resend.dev>');
-    const { error } = await resend.emails.send({ from, to, subject, html });
+    const { data, error } = await resend.emails.send({ from, to, subject, html });
     if (error) throw new Error(error.message || JSON.stringify(error));
-    return { sent: true, error: null };
+    if (!data?.id) throw new Error('Réponse du service d\'e-mail sans identifiant d\'envoi.');
+    return { sent: true, id: data.id, error: null };
   } catch (error) {
     return { sent: false, error: error.message };
   }
 }
 
-// Lien sécurisé à usage unique : la personne choisit elle-même son mot de passe
-// (aucun mot de passe généré, stocké ou transmis par nous).
-async function sendInviteLink(supabaseAdmin, { email, name, roleLabel, isNewUser }) {
+// Lien sécurisé, temporaire et à usage unique : la personne choisit elle-même
+// son mot de passe (aucun mot de passe généré, stocké ou transmis par nous).
+// kind : 'invite' (première connexion) ou 'reset' (compte déjà activé).
+async function sendInviteLink(supabaseAdmin, { email, name, roleCode, roleLabel, isNewUser, kind = 'invite' }) {
+  const type = isNewUser ? 'invite' : 'recovery';
   const { data: generated, error } = await supabaseAdmin.auth.admin.generateLink({
-    type: isNewUser ? 'invite' : 'recovery',
+    type,
     email,
     options: isNewUser ? { data: { full_name: name } } : undefined,
   });
   if (error || !generated?.properties?.hashed_token) {
     throw new Error('Impossible de générer le lien d\'accès : ' + (error?.message || 'inconnu'));
   }
-  const type = isNewUser ? 'invite' : 'recovery';
   const link = `${siteUrl()}/reinitialiser-mot-de-passe.html?token_hash=${encodeURIComponent(generated.properties.hashed_token)}&type=${type}`;
-  const mail = await sendMail({ to: email, subject: buildStaffInviteSubject(), html: buildStaffInviteHtml({ name, roleLabel, link }) });
+  const mail = await sendMail({
+    to: email,
+    subject: buildStaffInviteSubject({ roleCode, kind }),
+    html: buildStaffInviteHtml({ name, email, roleLabel, link, loginUrl: `${siteUrl()}/admin/`, kind }),
+  });
   return { userId: generated.user?.id || null, mail };
+}
+
+// La date d'invitation n'est enregistrée QUE si le service d'e-mail a accepté l'envoi.
+async function markInviteSent(supabaseAdmin, userId, mail) {
+  if (!mail.sent) return;
+  await supabaseAdmin.from('profiles').update({ staff_invited_at: new Date().toISOString() }).eq('id', userId);
 }
 
 async function listStaff(supabaseAdmin) {
   const [{ data: profiles, error }, { data: roles }] = await Promise.all([
-    supabaseAdmin.from('profiles').select('id, full_name, email, staff_role, staff_active, staff_deactivated_at, staff_invited_at, created_at').eq('role', 'admin').order('created_at'),
+    supabaseAdmin.from('profiles').select('id, full_name, email, staff_role, staff_active, staff_deactivated_at, staff_invited_at, staff_activated_at, created_at').eq('role', 'admin').order('created_at'),
     supabaseAdmin.from('staff_roles').select('code, label, description, sort_order').order('sort_order'),
   ]);
   if (error) throw error;
@@ -78,7 +90,7 @@ async function listStaff(supabaseAdmin) {
       ...p,
       last_sign_in_at: u?.last_sign_in_at || null,
       banned: !!(u?.banned_until && new Date(u.banned_until) > new Date()),
-      pending_invite: !u?.last_sign_in_at,
+      pending_invite: !p.staff_activated_at && !u?.last_sign_in_at,
     };
   }));
   return { users, roles: roles || [] };
@@ -125,32 +137,34 @@ async function handleStaff(req, res, auth) {
       const { error: upErr } = await supabaseAdmin.from('profiles').upsert({
         id: existing.id, role: 'admin', staff_role: roleRow.code, staff_active: true,
         full_name: name || prof?.full_name || null, email: normalizedEmail,
-        staff_invited_at: new Date().toISOString(), must_change_password: false,
+        must_change_password: false,
       });
       if (upErr) return fail(res, 500, upErr.message);
       let mail = { sent: false, error: null };
       if (!existing.last_sign_in_at) {
-        try { mail = (await sendInviteLink(supabaseAdmin, { email: normalizedEmail, name, roleLabel: roleRow.label, isNewUser: false })).mail; }
+        try { mail = (await sendInviteLink(supabaseAdmin, { email: normalizedEmail, name, roleCode: roleRow.code, roleLabel: roleRow.label, isNewUser: false })).mail; }
         catch (error) { mail = { sent: false, error: error.message }; }
+        await markInviteSent(supabaseAdmin, existing.id, mail);
       }
-      return res.status(200).json({ ok: true, existingAccount: true, userId: existing.id, emailSent: mail.sent, emailError: mail.error });
+      return res.status(200).json({ ok: true, existingAccount: true, userId: existing.id, emailSent: mail.sent, emailId: mail.id || null, emailError: mail.error });
     }
 
     let result;
-    try { result = await sendInviteLink(supabaseAdmin, { email: normalizedEmail, name, roleLabel: roleRow.label, isNewUser: true }); }
+    try { result = await sendInviteLink(supabaseAdmin, { email: normalizedEmail, name, roleCode: roleRow.code, roleLabel: roleRow.label, isNewUser: true }); }
     catch (error) { return fail(res, 500, error.message); }
     const { error: profErr } = await supabaseAdmin.from('profiles').upsert({
       id: result.userId, role: 'admin', staff_role: roleRow.code, staff_active: true,
-      full_name: name, email: normalizedEmail, staff_invited_at: new Date().toISOString(),
+      full_name: name, email: normalizedEmail,
+      staff_invited_at: result.mail.sent ? new Date().toISOString() : null,
     });
     if (profErr) return fail(res, 500, 'Compte créé mais profil non enregistré : ' + profErr.message);
-    return res.status(201).json({ ok: true, existingAccount: false, userId: result.userId, emailSent: result.mail.sent, emailError: result.mail.error });
+    return res.status(201).json({ ok: true, existingAccount: false, userId: result.userId, emailSent: result.mail.sent, emailId: result.mail.id || null, emailError: result.mail.error });
   }
 
   // Actions sur un compte interne existant
   if (!userId || typeof userId !== 'string') return fail(res, 400, 'userId manquant.');
   if (userId === auth.user.id) return fail(res, 403, 'Vous ne pouvez pas modifier votre propre rôle ou statut.');
-  const { data: target } = await supabaseAdmin.from('profiles').select('id, role, email, full_name, staff_role').eq('id', userId).maybeSingle();
+  const { data: target } = await supabaseAdmin.from('profiles').select('id, role, email, full_name, staff_role, staff_active, staff_activated_at').eq('id', userId).maybeSingle();
   if (!target || target.role !== 'admin') return fail(res, 404, 'Utilisateur interne introuvable.');
 
   if (action === 'set_role') {
@@ -170,15 +184,25 @@ async function handleStaff(req, res, auth) {
     if (error) return fail(res, 500, error.message);
     return res.status(200).json({ ok: true });
   }
-  if (action === 'resend') {
+  if (action === 'resend' || action === 'reset_link') {
+    if (!target.staff_active) return fail(res, 409, 'Compte désactivé : réactivez-le avant d\'envoyer un lien.');
+    const { data: authData } = await supabaseAdmin.auth.admin.getUserById(userId);
+    const activated = !!(target.staff_activated_at || authData?.user?.last_sign_in_at);
+    if (action === 'resend' && activated) return fail(res, 409, 'Compte déjà activé : utilisez « Envoyer un lien de réinitialisation ».');
+    if (action === 'reset_link' && !activated) return fail(res, 409, 'Compte pas encore activé : utilisez « Renvoyer l\'invitation ».');
     const { data: roleInfo } = await supabaseAdmin.from('staff_roles').select('label').eq('code', target.staff_role).maybeSingle();
+    let mail;
     try {
-      const { mail } = await sendInviteLink(supabaseAdmin, { email: target.email, name: target.full_name, roleLabel: roleInfo?.label || '', isNewUser: false });
-      await supabaseAdmin.from('profiles').update({ staff_invited_at: new Date().toISOString() }).eq('id', userId);
-      return res.status(200).json({ ok: true, emailSent: mail.sent, emailError: mail.error });
+      ({ mail } = await sendInviteLink(supabaseAdmin, {
+        email: target.email, name: target.full_name, roleCode: target.staff_role, roleLabel: roleInfo?.label || '',
+        isNewUser: false, kind: action === 'resend' ? 'invite' : 'reset',
+      }));
     } catch (error) {
       return fail(res, 500, error.message);
     }
+    if (!mail.sent) return fail(res, 502, 'E-mail NON envoyé (refusé par le service d\'envoi) : ' + mail.error);
+    if (action === 'resend') await markInviteSent(supabaseAdmin, userId, mail);
+    return res.status(200).json({ ok: true, emailSent: true, emailId: mail.id });
   }
   return fail(res, 400, 'Action inconnue.');
 }
