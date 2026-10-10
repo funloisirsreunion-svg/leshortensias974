@@ -53,7 +53,7 @@
     const isNew = params.get('new') === '1';
     const root = document.getElementById('appRoot');
 
-    let supabase, session;
+    let supabase, session, staff;
     let stay = null, registrations = [], documentsByReg = {}, journal = [];
     let viewMode = 'table'; // 'table' | 'arrivees'
     let sortKey = 'enfant', sortDir = 'asc';
@@ -79,7 +79,7 @@
 
       const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
       if (!profile || profile.role !== 'admin') { await supabase.auth.signOut(); window.location.href = 'index.html'; return; }
-      const staff = await loadStaffContext(supabase);
+      staff = await loadStaffContext(supabase);
       if (!requirePagePermission(staff, ['colonies.read'])) return;
       mountAdminNav(staff, 'colonies');
 
@@ -281,7 +281,7 @@
             ${stay.archived_at
               ? `<button class="app-btn app-btn-sm app-btn-outline" id="restoreStayBtn">Restaurer le séjour</button>`
               : `<button class="app-btn app-btn-sm app-btn-outline" id="archiveStayBtn">Archiver le séjour (passé)</button>`}
-            ${st.total === 0 ? `<button class="app-btn app-btn-sm app-btn-danger" id="deleteStayBtn">Supprimer ce séjour (vide)</button>` : ''}
+            ${st.total === 0 && staff.can('colonies.delete') ? `<button class="app-btn app-btn-sm app-btn-danger" id="deleteStayBtn">Supprimer ce séjour (vide)</button>` : ''}
           </div>
           <div id="msgStayActions"></div>
         </div>
@@ -502,7 +502,7 @@
             <div class="app-field"><label>Statut de la fiche</label><select name="statut">${opt(COLONY_REGISTRATION_STATUTS, reg.statut)}</select></div>
           </div>
           <button type="submit" class="app-btn">Enregistrer</button>
-          <button type="button" class="app-btn app-btn-danger" id="deleteRegBtn" style="margin-left:8px;">Supprimer cette fiche</button>
+          ${staff.can('colonies.delete') ? `<button type="button" class="app-btn app-btn-danger" id="deleteRegBtn" style="margin-left:8px;">Supprimer cette fiche</button>` : ''}
         </form>
 
         <h4 style="margin-top:20px;">Paiements</h4>
