@@ -50,6 +50,7 @@ img { max-width:100%; display:block; }
 }
 #navbar.scrolled .nav-logo { color:var(--vert-fonce); }
 .logo-icon { font-size:1.5rem; }
+.logo-hortensia { width:1.3em; height:1.3em; display:inline-block; vertical-align:middle; flex-shrink:0; }
 
 .nav-links { display:flex; align-items:center; gap:28px; }
 .nav-links > li > a {
