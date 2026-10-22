@@ -37,7 +37,7 @@
     import { buildFiche, ficheIssues, ficheHash, ficheDiff, ficheHtml, ficheFileName, effectifsFrom, coherenceErrors, DEFAULT_FICHE_RECIPIENT } from '../lib/ficheOperationnelle.js';
     import { buildFichePdf } from '../lib/fichePdf.js';
     import { VALIDATED_DOSSIER_STATUTS } from '../lib/planning.js';
-    import { blocState, isLockedForAdmin, renderBlocStatusPanel, renderBlocHistory, renderDocumentHistory, renderDocumentDates, documentsSummary, summarizeBlocData, formatDateTimeFr, formatDateShortFr, blocLabel, BLOC_STATUTS } from '../lib/blocValidation.js';
+    import { blocState, isLockedForAdmin, renderBlocStatusPanel, renderBlocHistory, renderDocumentHistory, renderDocumentDates, documentsSummary, summarizeBlocData, formatDateTimeFr, formatDateShortFr, blocLabel, BLOC_STATUTS, blocStatutInfo, effectifDefRenseigne } from '../lib/blocValidation.js';
 
     const params = new URLSearchParams(window.location.search);
     const dossierId = params.get('id');
@@ -137,6 +137,22 @@
     }
 
     const SPLIT_FIELDS = ['effectif_filles', 'effectif_garcons', 'effectif_profs_femmes', 'effectif_profs_hommes', 'effectif_accomp_femmes', 'effectif_accomp_hommes'];
+    // Effectif définitif (administration uniquement) : totaux + répartition propre.
+    const DEF_TOTAL_FIELDS = ['effectif_def_eleves', 'effectif_def_profs', 'effectif_def_accompagnateurs'];
+    const DEF_SPLIT_FIELDS = SPLIT_FIELDS.map(k => k.replace('effectif_', 'effectif_def_'));
+    const PREV_TO_DEF = {
+      effectif_prev_eleves: 'effectif_def_eleves', effectif_prev_profs: 'effectif_def_profs', effectif_prev_accompagnateurs: 'effectif_def_accompagnateurs',
+      ...Object.fromEntries(SPLIT_FIELDS.map((k, i) => [k, DEF_SPLIT_FIELDS[i]])),
+    };
+
+    function splitFieldsHtml(prefix, attr) {
+      const f = (k, label) => `<div class="app-field"><label>${label}</label><input type="number" min="0" name="${prefix}${k}" value="${dossier[prefix + k] ?? ''}" ${attr} /></div>`;
+      return `<div class="app-grid-2">
+        ${f('filles', 'Élèves — dont filles')}${f('garcons', 'Élèves — dont garçons')}
+        ${f('profs_femmes', 'Professeurs — dont femmes')}${f('profs_hommes', 'Professeurs — dont hommes')}
+        ${f('accomp_femmes', 'Accompagnateurs — dont femmes')}${f('accomp_hommes', 'Accompagnateurs — dont hommes')}
+      </div>`;
+    }
 
     function allergieRow(a = {}) {
       const r = bLocked('regimes') ? 'readonly' : '';
@@ -174,14 +190,30 @@
     }
 
     // Totaux et contrôles de cohérence en direct (bloc Effectifs, classes).
-    function renderEffCheck() {
-      const box = document.getElementById('effCheck');
-      const form = document.getElementById('effectifsForm');
+    async function saveEffectifsDef() {
+      const form = document.getElementById('effectifsDefForm');
+      if (!form || bLocked('effectifs_def')) return null;
+      const fd = new FormData(form);
+      const payload = Object.fromEntries([...DEF_TOTAL_FIELDS, ...DEF_SPLIT_FIELDS].map(k => [k, fd.get(k) !== '' && fd.get(k) !== null ? Number(fd.get(k)) : null]));
+      const changed = Object.keys(payload).some(k => (dossier[k] ?? null) !== payload[k]);
+      if (!changed) return null;
+      const { error } = await supabase.from('dossiers').update(payload).eq('id', dossierId);
+      return error;
+    }
+
+    // def = false : effectif prévisionnel (#effectifsForm) ; true : définitif (#effectifsDefForm).
+    function renderEffCheck(def = false) {
+      const box = document.getElementById(def ? 'effDefCheck' : 'effCheck');
+      const form = document.getElementById(def ? 'effectifsDefForm' : 'effectifsForm');
       if (!box || !form) return;
       const fd = new FormData(form);
       const src = {};
-      ['effectif_prev_eleves', 'effectif_prev_profs', 'effectif_prev_accompagnateurs', 'effectif_def_eleves', 'effectif_def_profs', 'effectif_def_accompagnateurs', ...SPLIT_FIELDS]
+      (def ? [...DEF_TOTAL_FIELDS, ...DEF_SPLIT_FIELDS] : ['effectif_prev_eleves', 'effectif_prev_profs', 'effectif_prev_accompagnateurs', ...SPLIT_FIELDS])
         .forEach(k => { src[k] = fd.get(k) === '' ? null : fd.get(k); });
+      if (def && DEF_TOTAL_FIELDS.every(k => src[k] === null)) {
+        box.innerHTML = '<p class="app-field-hint">Effectif définitif non renseigné.</p>';
+        return;
+      }
       const e = effectifsFrom(src);
       const errs = coherenceErrors(e);
       const v = (n) => n ?? '—';
@@ -194,7 +226,7 @@
           <span style="font-size:.78rem;color:var(--texte-clair);">(base : effectif ${e.base === 'definitif' ? 'définitif' : 'prévisionnel'})</span>
         </div>
         ${errs.map(m => `<div class="app-msg app-msg-error" style="margin:8px 0 0;">⚠ ${esc(m)}</div>`).join('')}
-        ${errs.length ? '<p class="app-field-hint">Le bloc Effectifs ne pourra pas être validé tant que la répartition est incohérente.</p>' : ''}`;
+        ${errs.length ? `<p class="app-field-hint">L'effectif ${def ? 'définitif' : 'prévisionnel'} ne pourra pas être validé tant que la répartition est incohérente.</p>` : ''}`;
     }
 
     function currentFiche() {
@@ -308,7 +340,7 @@
       if (addAl) addAl.addEventListener('click', () => { document.getElementById('allergiesRows').insertAdjacentHTML('beforeend', allergieRow()); bindAllergieDelete(); });
       bindAllergieDelete();
       const effForm = document.getElementById('effectifsForm');
-      if (effForm && document.getElementById('effCheck')) { effForm.addEventListener('input', renderEffCheck); renderEffCheck(); }
+      if (effForm && document.getElementById('effCheck')) { effForm.addEventListener('input', () => renderEffCheck()); renderEffCheck(); }
     }
 
     function bindAllergieDelete() {
@@ -411,8 +443,16 @@
     function bLocked(bloc) { return isSchool() && isLockedForAdmin(bState(bloc)); }
     function ro(bloc) { return bLocked(bloc) ? 'readonly' : ''; }
 
-    const VALIDATE_LABELS = { coordonnees: 'Valider les coordonnées', devis: 'Valider le devis', effectifs: 'Valider les effectifs', regimes: 'Valider les régimes alimentaires' };
-    const REOPEN_LABELS = { coordonnees: 'Rouvrir pour modification', devis: 'Rouvrir le devis', effectifs: 'Rouvrir les effectifs', regimes: 'Rouvrir les informations alimentaires' };
+    const VALIDATE_LABELS = { coordonnees: 'Valider les coordonnées', devis: 'Valider le devis', effectifs: 'Valider l\'effectif prévisionnel', effectifs_def: 'Valider l\'effectif définitif', regimes: 'Valider les régimes alimentaires' };
+    const REOPEN_LABELS = { coordonnees: 'Rouvrir pour modification', devis: 'Rouvrir le devis', effectifs: 'Demander des corrections', effectifs_def: 'Modifier l\'effectif définitif', regimes: 'Rouvrir les informations alimentaires' };
+
+    // Motif de la dernière demande de corrections (effectif prévisionnel).
+    function reopenMessage(bloc) {
+      const st = bState(bloc);
+      if (st.statut !== 'reopened') return null;
+      const ev = blocEvents.filter(e => e.bloc === bloc && e.action === 'reopened' && e.version === st.version - 1).pop();
+      return ev ? ev.message : null;
+    }
 
     function currentVersionRow(bloc) {
       const st = bState(bloc);
@@ -426,14 +466,17 @@
       const v = currentVersionRow(bloc);
       let recap = '';
       if (st.statut === 'client_confirmed' && v && v.donnees_client) {
-        recap = `<div class="app-msg app-msg-info" style="margin:0 0 8px;"><strong>${esc(blocLabel(bloc))} confirmé(e)s par le client :</strong><br/>${esc(summarizeBlocData(bloc, v.donnees_client))}<br/><span style="font-size:.82rem;">Confirmé(e)s le ${formatDateTimeFr(v.client_confirmed_at)}</span></div>`;
+        recap = bloc === 'effectifs'
+          ? `<div class="app-msg app-msg-info" style="margin:0 0 8px;"><strong>Validation de l'effectif prévisionnel demandée par le client :</strong><br/>${esc(summarizeBlocData(bloc, v.donnees_client))}<br/><span style="font-size:.82rem;">Demandée le ${formatDateTimeFr(v.client_confirmed_at)}</span></div>`
+          : `<div class="app-msg app-msg-info" style="margin:0 0 8px;"><strong>${esc(blocLabel(bloc))} confirmé(e)s par le client :</strong><br/>${esc(summarizeBlocData(bloc, v.donnees_client))}<br/><span style="font-size:.82rem;">Confirmé(e)s le ${formatDateTimeFr(v.client_confirmed_at)}</span></div>`;
       }
+      const opts = { renseigne: bloc === 'effectifs_def' ? effectifDefRenseigne(dossier) : undefined, reopenMessage: reopenMessage(bloc) };
       const buttons = [];
-      if (st.statut !== 'validated') buttons.push(`<button type="button" class="app-btn app-btn-sm" data-bloc-validate="${bloc}">${VALIDATE_LABELS[bloc]}</button>`);
+      if (st.statut !== 'validated' && (bloc !== 'effectifs_def' || opts.renseigne)) buttons.push(`<button type="button" class="app-btn app-btn-sm" data-bloc-validate="${bloc}">${VALIDATE_LABELS[bloc]}</button>`);
       if (st.statut === 'validated' || st.statut === 'client_confirmed') buttons.push(`<button type="button" class="app-btn app-btn-sm app-btn-outline" data-bloc-reopen="${bloc}">${REOPEN_LABELS[bloc]}</button>`);
       return `
         <div class="js-bloc-${bloc}">
-          ${renderBlocStatusPanel(bloc, st, 'admin')}
+          ${renderBlocStatusPanel(bloc, st, 'admin', opts)}
           ${recap}
           <div class="app-bloc-actions">${buttons.join('')}</div>
           ${renderBlocHistory(bloc, blocVersions, blocEvents)}
@@ -442,11 +485,12 @@
 
     function overviewLine(bloc, extra = '') {
       const st = bState(bloc);
-      const s = BLOC_STATUTS[st.statut];
+      const s = blocStatutInfo(bloc, st, { renseigne: bloc === 'effectifs_def' ? effectifDefRenseigne(dossier) : undefined });
       let txt = `${s.dot} ${s.label}`;
-      if (st.statut === 'validated' && st.admin_validated_at) txt = `🟢 Validé(e)s – ${formatDateShortFr(st.admin_validated_at)} 🔒`;
-      if (st.statut === 'client_confirmed') txt = `🔵 Confirmé(e)s par le client – validation Admin nécessaire`;
-      if (st.statut === 'reopened') txt = `🟠 Rouvert(e)s – en attente de mise à jour par le client (version ${st.version})`;
+      if (st.statut === 'validated' && st.admin_validated_at) txt = `🟢 ${bloc === 'effectifs_def' ? 'Validé par l\'Admin' : 'Validé(e)s'} – ${formatDateShortFr(st.admin_validated_at)} 🔒`;
+      if (st.statut === 'client_confirmed') txt = bloc === 'effectifs' ? '🔵 En attente de validation – validation demandée par le client' : `🔵 Confirmé(e)s par le client – validation Admin nécessaire`;
+      if (st.statut === 'reopened' && bloc === 'effectifs') txt = `🟠 Corrections demandées – en attente du client (version ${st.version})`;
+      else if (st.statut === 'reopened' && bloc !== 'effectifs_def') txt = `🟠 Rouvert(e)s – en attente de mise à jour par le client (version ${st.version})`;
       if (st.modification_requested_at) txt += ` · 🔴 Modification demandée`;
       return `<div class="app-overview-row"><span class="app-overview-name">${esc(blocLabel(bloc))}</span><span class="app-overview-val">${txt}${extra ? `<br/><span style="color:var(--texte-clair);font-size:.85rem;">${extra}</span>` : ''}</span></div>`;
     }
@@ -465,6 +509,7 @@
           ${overviewLine('devis', devisDoc && devisDoc.file_name ? esc(devisDoc.file_name) : '')}
           <div class="app-overview-row"><span class="app-overview-name">Documents</span><span class="app-overview-val">${docs.dot} ${docs.text || 'aucun document requis'}</span></div>
           ${overviewLine('effectifs', effData ? esc(summarizeBlocData('effectifs', effData).split(' · ')[0]) : effExtra)}
+          ${overviewLine('effectifs_def', effectifDefRenseigne(dossier) ? esc(summarizeBlocData('effectifs_def', dossier)) : '')}
           ${overviewLine('regimes')}
         </div>`;
     }
@@ -764,35 +809,20 @@
           <div id="msgEffectifs"></div>
           <form id="effectifsForm">
             ${dossier.client_type === 'school' ? `
-            <h3 style="margin-top:4px;">Effectifs prévisionnels &amp; niveaux</h3>
+            <h3 style="margin-top:4px;">Effectif prévisionnel (saisi par le professeur)</h3>
             ${adminBlocSection('effectifs')}
-            <h3>Niveaux</h3>
-            <div class="app-grid-3">
-              ${NIVEAUX.map(n => `<div class="app-field"><label>${n.label}</label><input type="number" min="0" name="niveau_${n.key}" value="${(dossier.niveaux && dossier.niveaux[n.key]) || 0}" ${ro('effectifs')} /></div>`).join('')}
-            </div>
-            <h3>Effectifs prévisionnels</h3>
             <div class="app-grid-3">
               <div class="app-field"><label>Élèves</label><input type="number" min="0" name="effectif_prev_eleves" value="${dossier.effectif_prev_eleves ?? ''}" ${ro('effectifs')} /></div>
               <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_prev_profs" value="${dossier.effectif_prev_profs ?? ''}" ${ro('effectifs')} /></div>
               <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_prev_accompagnateurs" value="${dossier.effectif_prev_accompagnateurs ?? ''}" ${ro('effectifs')} /></div>
             </div>
-            <h3>Effectifs définitifs</h3>
+            <h3>Répartition pour le couchage</h3>
+            ${splitFieldsHtml('effectif_', ro('effectifs'))}
+            <div id="effCheck" aria-live="polite"></div>
+            <h3>Niveaux</h3>
             <div class="app-grid-3">
-              <div class="app-field"><label>Élèves</label><input type="number" min="0" name="effectif_def_eleves" value="${dossier.effectif_def_eleves ?? ''}" ${ro('effectifs')} /></div>
-              <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_def_profs" value="${dossier.effectif_def_profs ?? ''}" ${ro('effectifs')} /></div>
-              <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_def_accompagnateurs" value="${dossier.effectif_def_accompagnateurs ?? ''}" ${ro('effectifs')} /></div>
-            </div>
-            <h3>Répartition (pour les couchages)</h3>
-            <p class="app-field-hint" style="margin:-4px 0 10px;">Porte sur l'effectif définitif s'il est renseigné, sinon sur le prévisionnel.</p>
-            <div class="app-grid-2">
-              <div class="app-field"><label>Élèves — dont filles</label><input type="number" min="0" name="effectif_filles" value="${dossier.effectif_filles ?? ''}" ${ro('effectifs')} /></div>
-              <div class="app-field"><label>Élèves — dont garçons</label><input type="number" min="0" name="effectif_garcons" value="${dossier.effectif_garcons ?? ''}" ${ro('effectifs')} /></div>
-              <div class="app-field"><label>Professeurs — dont femmes</label><input type="number" min="0" name="effectif_profs_femmes" value="${dossier.effectif_profs_femmes ?? ''}" ${ro('effectifs')} /></div>
-              <div class="app-field"><label>Professeurs — dont hommes</label><input type="number" min="0" name="effectif_profs_hommes" value="${dossier.effectif_profs_hommes ?? ''}" ${ro('effectifs')} /></div>
-              <div class="app-field"><label>Accompagnateurs — dont femmes</label><input type="number" min="0" name="effectif_accomp_femmes" value="${dossier.effectif_accomp_femmes ?? ''}" ${ro('effectifs')} /></div>
-              <div class="app-field"><label>Accompagnateurs — dont hommes</label><input type="number" min="0" name="effectif_accomp_hommes" value="${dossier.effectif_accomp_hommes ?? ''}" ${ro('effectifs')} /></div>
-            </div>
-            <div id="effCheck" aria-live="polite"></div>` : `
+              ${NIVEAUX.map(n => `<div class="app-field"><label>${n.label}</label><input type="number" min="0" name="niveau_${n.key}" value="${(dossier.niveaux && dossier.niveaux[n.key]) || 0}" ${ro('effectifs')} /></div>`).join('')}
+            </div>` : `
             <h3>Effectifs</h3>
             <div class="app-grid-2">
               <div class="app-field"><label>Nombre d'adultes</label><input type="number" min="0" name="nb_adultes" value="${dossier.nb_adultes ?? ''}" /></div>
@@ -805,8 +835,30 @@
             <div class="app-field"><label>Besoins particuliers (salle, matériel, allergies…)</label><textarea name="besoins_particuliers" rows="2">${esc(dossier.besoins_particuliers)}</textarea></div>
             <div class="app-field"><label>Remarques alimentaires</label><textarea name="remarques_alimentaires" rows="2">${esc(dossier.remarques_alimentaires)}</textarea></div>
             `}
-            ${bLocked('effectifs') ? '' : '<button type="submit" class="app-btn">Enregistrer</button>'}
+            ${bLocked('effectifs') ? '' : `<button type="submit" class="app-btn">${dossier.client_type === 'school' ? 'Enregistrer l\'effectif prévisionnel' : 'Enregistrer'}</button>`}
           </form>
+          ${dossier.client_type === 'school' ? `
+          <div class="app-eff-def">
+            <h3>Effectif définitif (administration uniquement)</h3>
+            ${adminBlocSection('effectifs_def')}
+            <div id="msgEffectifsDef"></div>
+            <form id="effectifsDefForm">
+              <div class="app-grid-3">
+                <div class="app-field"><label>Élèves</label><input type="number" min="0" name="effectif_def_eleves" value="${dossier.effectif_def_eleves ?? ''}" ${ro('effectifs_def')} /></div>
+                <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_def_profs" value="${dossier.effectif_def_profs ?? ''}" ${ro('effectifs_def')} /></div>
+                <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_def_accompagnateurs" value="${dossier.effectif_def_accompagnateurs ?? ''}" ${ro('effectifs_def')} /></div>
+              </div>
+              <h3>Répartition</h3>
+              ${splitFieldsHtml('effectif_def_', ro('effectifs_def'))}
+              <div id="effDefCheck" aria-live="polite"></div>
+              ${bLocked('effectifs_def') ? '' : `
+              <div class="app-bloc-actions">
+                <button type="button" class="app-btn app-btn-outline" id="effDefFromPrevBtn" title="Préremplit les champs avec l'effectif prévisionnel, sans enregistrer ni valider">Reprendre les effectifs prévisionnels</button>
+                <button type="submit" class="app-btn">Enregistrer l'effectif définitif</button>
+              </div>
+              <p class="app-field-hint">« Reprendre les effectifs prévisionnels » remplit seulement les champs : ajustez si besoin, enregistrez, puis validez séparément.</p>`}
+            </form>
+          </div>` : ''}
           <h3>Régimes alimentaires</h3>
           ${adminBlocSection('regimes')}
           <form id="regimesForm">
@@ -1119,7 +1171,12 @@
         btn.addEventListener('click', async () => {
           const bloc = btn.dataset.blocValidate;
           if (bloc === 'devis' && !window.confirm('Valider le devis officiel ? Le devis et le devis signé ne pourront plus être remplacés sans réouverture.')) return;
+          if (bloc === 'effectifs_def' && !window.confirm('Valider l\'effectif définitif ? Les valeurs saisies seront enregistrées puis verrouillées. L\'effectif prévisionnel n\'est pas modifié.')) return;
           btn.disabled = true;
+          if (bloc === 'effectifs_def') {
+            const saveError = await saveEffectifsDef();
+            if (saveError) { btn.disabled = false; return toast(saveError.message); }
+          }
           const { error } = await supabase.rpc('bloc_validate_admin', { p_dossier_id: dossierId, p_bloc: bloc });
           if (error) { btn.disabled = false; return toast(error.message); }
           toast(`${blocLabel(bloc)} : validé(e)s et verrouillé(e)s.`, 'success');
@@ -1130,14 +1187,23 @@
       document.querySelectorAll('[data-bloc-reopen]').forEach(btn => {
         btn.addEventListener('click', async () => {
           const bloc = btn.dataset.blocReopen;
-          const question = bloc === 'devis'
-            ? 'Rouvrir le devis validé ? Il pourra de nouveau être remplacé. La validation précédente reste dans l\'historique.'
-            : 'Autoriser le client à modifier de nouveau ces informations ?\n\nLa version validée actuelle et ses dates sont conservées dans l\'historique.';
-          if (!window.confirm(question)) return;
+          let message = null;
+          if (bloc === 'effectifs') {
+            // « Demander des corrections » : le motif est transmis au professeur.
+            message = window.prompt('Quelles corrections demandez-vous au professeur sur l\'effectif prévisionnel ?\n(Ce message lui sera transmis. La version actuelle reste dans l\'historique.)');
+            if (message === null) return;
+          } else {
+            const question = bloc === 'devis'
+              ? 'Rouvrir le devis validé ? Il pourra de nouveau être remplacé. La validation précédente reste dans l\'historique.'
+              : bloc === 'effectifs_def'
+                ? 'Modifier l\'effectif définitif validé ?\n\nIl repassera « En cours de préparation » (le client n\'est pas sollicité). La version validée reste dans l\'historique.'
+                : 'Autoriser le client à modifier de nouveau ces informations ?\n\nLa version validée actuelle et ses dates sont conservées dans l\'historique.';
+            if (!window.confirm(question)) return;
+          }
           btn.disabled = true;
-          const { error } = await supabase.rpc('bloc_reopen_admin', { p_dossier_id: dossierId, p_bloc: bloc, p_message: null });
+          const { error } = await supabase.rpc('bloc_reopen_admin', { p_dossier_id: dossierId, p_bloc: bloc, p_message: message });
           if (error) { btn.disabled = false; return toast(error.message); }
-          toast(`${blocLabel(bloc)} : rouvert(e)s pour modification.`, 'success');
+          toast(bloc === 'effectifs' ? 'Effectif prévisionnel : corrections demandées au client.' : `${blocLabel(bloc)} : rouvert(e)s pour modification.`, 'success');
           await loadAll();
         });
       });
@@ -1208,9 +1274,6 @@
               effectif_prev_eleves: fd.get('effectif_prev_eleves') ? Number(fd.get('effectif_prev_eleves')) : null,
               effectif_prev_profs: fd.get('effectif_prev_profs') ? Number(fd.get('effectif_prev_profs')) : null,
               effectif_prev_accompagnateurs: fd.get('effectif_prev_accompagnateurs') ? Number(fd.get('effectif_prev_accompagnateurs')) : null,
-              effectif_def_eleves: fd.get('effectif_def_eleves') ? Number(fd.get('effectif_def_eleves')) : null,
-              effectif_def_profs: fd.get('effectif_def_profs') ? Number(fd.get('effectif_def_profs')) : null,
-              effectif_def_accompagnateurs: fd.get('effectif_def_accompagnateurs') ? Number(fd.get('effectif_def_accompagnateurs')) : null,
               ...Object.fromEntries(SPLIT_FIELDS.map(k => [k, fd.get(k) !== '' && fd.get(k) !== null ? Number(fd.get(k)) : null])),
             };
             const est = computeClassEstimate({
@@ -1235,6 +1298,29 @@
           if (error) return showMsg('msgEffectifs', error.message);
           showMsg('msgEffectifs', 'Enregistré.', 'success');
           await loadAll();
+        });
+      }
+
+      // Effectif définitif : saisi, modifié et validé par l'administration uniquement.
+      const effectifsDefForm = document.getElementById('effectifsDefForm');
+      if (effectifsDefForm) {
+        effectifsDefForm.addEventListener('input', () => renderEffCheck(true));
+        renderEffCheck(true);
+        effectifsDefForm.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const error = await saveEffectifsDef();
+          if (error) return showMsg('msgEffectifsDef', error.message);
+          showMsg('msgEffectifsDef', 'Effectif définitif enregistré (non validé).', 'success');
+          await loadAll();
+        });
+        const fromPrev = document.getElementById('effDefFromPrevBtn');
+        if (fromPrev) fromPrev.addEventListener('click', () => {
+          // Préremplissage uniquement : rien n'est enregistré ni validé ici.
+          const filled = DEF_TOTAL_FIELDS.concat(DEF_SPLIT_FIELDS).some(k => effectifsDefForm.elements[k].value !== '');
+          if (filled && !window.confirm('Remplacer les valeurs saisies dans l\'effectif définitif par celles de l\'effectif prévisionnel ?')) return;
+          Object.entries(PREV_TO_DEF).forEach(([prev, def]) => { effectifsDefForm.elements[def].value = dossier[prev] ?? ''; });
+          renderEffCheck(true);
+          showMsg('msgEffectifsDef', 'Champs préremplis avec l\'effectif prévisionnel. Ajustez si besoin, puis enregistrez. Rien n\'est validé automatiquement.', 'info');
         });
       }
 

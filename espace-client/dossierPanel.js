@@ -11,13 +11,31 @@ import {
 } from '../lib/appConstants.js';
 import {
   blocState, isLockedForClient, renderBlocStatusPanel, renderBlocHistory, renderDocumentHistory,
-  renderDocumentDates, formatDateTimeFr,
+  renderDocumentDates, formatDateTimeFr, effectifDefRenseigne,
 } from '../lib/blocValidation.js';
 import { effectifsFrom, coherenceErrors } from '../lib/ficheOperationnelle.js';
 
 const SPLIT_FIELDS = ['effectif_filles', 'effectif_garcons', 'effectif_profs_femmes', 'effectif_profs_hommes', 'effectif_accomp_femmes', 'effectif_accomp_hommes'];
 
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+// Répartition filles/garçons, femmes/hommes. prefix : 'effectif_' (prévisionnel,
+// saisi par le professeur) ou 'effectif_def_' (définitif, lecture seule).
+function splitFieldsHtml(prefix, d, attr) {
+  const f = (k, label) => `<div class="app-field"><label>${label}</label><input type="number" min="0" name="${prefix}${k}" value="${d[prefix + k] ?? ''}" ${attr} /></div>`;
+  return `<div class="app-grid-2">
+    ${f('filles', 'Élèves — dont filles')}${f('garcons', 'Élèves — dont garçons')}
+    ${f('profs_femmes', 'Professeurs — dont femmes')}${f('profs_hommes', 'Professeurs — dont hommes')}
+    ${f('accomp_femmes', 'Accompagnateurs — dont femmes')}${f('accomp_hommes', 'Accompagnateurs — dont hommes')}
+  </div>`;
+}
+
+function totalsHtml(e, show = true) {
+  if (!show) return '';
+  return `<p style="background:var(--beige);border-radius:8px;padding:8px 12px;font-size:.88rem;margin:4px 0 8px;"><strong>Total groupe : ${e.total ?? '—'}</strong> · Enfants : ${e.totalEnfants ?? '—'} · Adultes : ${e.totalAdultes ?? '—'}`
+    + `${e.filles !== null || e.garcons !== null ? ` · Filles : ${e.filles ?? '—'} · Garçons : ${e.garcons ?? '—'}` : ''}`
+    + `${e.femmesAdultes !== null || e.hommesAdultes !== null ? ` · Femmes adultes : ${e.femmesAdultes ?? '—'} · Hommes adultes : ${e.hommesAdultes ?? '—'}` : ''}</p>`;
+}
 
 export async function mountDossierPanel({ container, supabase, dossierId, onChange }) {
   let dossier, regimes, documents, allergies = [];
@@ -67,7 +85,7 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
 
   const CONFIRM_LABELS = {
     coordonnees: 'Confirmer mes coordonnées',
-    effectifs: 'Confirmer mes effectifs',
+    effectifs: 'Demander la validation de l\'effectif prévisionnel',
     regimes: 'Confirmer les régimes alimentaires',
   };
 
@@ -79,11 +97,19 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
       ${renderBlocHistory(bloc, blocVersions, blocEvents)}`;
   }
 
+  // Motif saisi par l'Admin lors de « Demander des corrections » (dernière réouverture).
+  function reopenMessage(bloc) {
+    const st = bState(bloc);
+    if (st.statut !== 'reopened') return null;
+    const ev = blocEvents.filter(e => e.bloc === bloc && e.action === 'reopened' && e.version === st.version - 1).pop();
+    return ev ? ev.message : null;
+  }
+
   function blocActionsHtml(bloc) {
     if (!isSchool()) return '';
     const st = bState(bloc);
     if (st.statut === 'draft' || st.statut === 'reopened') {
-      const label = st.statut === 'reopened' ? 'Confirmer les modifications' : CONFIRM_LABELS[bloc];
+      const label = st.statut === 'reopened' && bloc !== 'effectifs' ? 'Confirmer les modifications' : CONFIRM_LABELS[bloc];
       return `<button type="button" class="app-btn" data-bloc-confirm="${bloc}">${label}</button>`;
     }
     if (!st.modification_requested_at) {
@@ -179,16 +205,19 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
 
       ${dossier.client_type === 'school' ? `
       <div class="app-panel-section">
-        <h3>Effectifs prévisionnels</h3>
-        ${clientBlocSection('effectifs')}
+        <h3>Effectif prévisionnel</h3>
+        ${isSchool() ? `${renderBlocStatusPanel('effectifs', bState('effectifs'), 'client', { reopenMessage: reopenMessage('effectifs') })}${renderBlocHistory('effectifs', blocVersions, blocEvents)}` : ''}
         <div class="js-msg-effectifs"></div>
         <form class="js-effectifs-form">
-          <h4>Effectifs prévisionnels</h4>
+          <h4>Effectif prévisionnel</h4>
           <div class="app-grid-3">
             <div class="app-field"><label>Élèves</label><input type="number" min="0" name="effectif_prev_eleves" value="${dossier.effectif_prev_eleves ?? ''}" ${ro('effectifs')} /></div>
             <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_prev_profs" value="${dossier.effectif_prev_profs ?? ''}" ${ro('effectifs')} /></div>
             <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_prev_accompagnateurs" value="${dossier.effectif_prev_accompagnateurs ?? ''}" ${ro('effectifs')} /></div>
           </div>
+          <h4>Répartition pour le couchage</h4>
+          ${splitFieldsHtml('effectif_', dossier, ro('effectifs'))}
+          <div class="js-eff-check" aria-live="polite"></div>
           <h4>Niveaux scolaires (nombre d'élèves)</h4>
           <div class="app-grid-3">
             ${NIVEAUX.map(n => `
@@ -197,28 +226,26 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
                 <input type="number" min="0" name="niveau_${n.key}" value="${(dossier.niveaux && dossier.niveaux[n.key]) || 0}" ${ro('effectifs')} />
               </div>`).join('')}
           </div>
-          <h4>Effectifs définitifs</h4>
-          <div class="app-grid-3">
-            <div class="app-field"><label>Élèves</label><input type="number" min="0" name="effectif_def_eleves" value="${dossier.effectif_def_eleves ?? ''}" ${ro('effectifs')} /></div>
-            <div class="app-field"><label>Professeurs</label><input type="number" min="0" name="effectif_def_profs" value="${dossier.effectif_def_profs ?? ''}" ${ro('effectifs')} /></div>
-            <div class="app-field"><label>Accompagnateurs</label><input type="number" min="0" name="effectif_def_accompagnateurs" value="${dossier.effectif_def_accompagnateurs ?? ''}" ${ro('effectifs')} /></div>
-          </div>
-          <h4>Répartition (pour préparer les couchages)</h4>
-          <p style="font-size:.8rem;color:var(--texte-clair);margin:-4px 0 10px;">Sur l'effectif définitif s'il est renseigné, sinon sur le prévisionnel.</p>
-          <div class="app-grid-2">
-            <div class="app-field"><label>Élèves — dont filles</label><input type="number" min="0" name="effectif_filles" value="${dossier.effectif_filles ?? ''}" ${ro('effectifs')} /></div>
-            <div class="app-field"><label>Élèves — dont garçons</label><input type="number" min="0" name="effectif_garcons" value="${dossier.effectif_garcons ?? ''}" ${ro('effectifs')} /></div>
-            <div class="app-field"><label>Professeurs — dont femmes</label><input type="number" min="0" name="effectif_profs_femmes" value="${dossier.effectif_profs_femmes ?? ''}" ${ro('effectifs')} /></div>
-            <div class="app-field"><label>Professeurs — dont hommes</label><input type="number" min="0" name="effectif_profs_hommes" value="${dossier.effectif_profs_hommes ?? ''}" ${ro('effectifs')} /></div>
-            <div class="app-field"><label>Accompagnateurs — dont femmes</label><input type="number" min="0" name="effectif_accomp_femmes" value="${dossier.effectif_accomp_femmes ?? ''}" ${ro('effectifs')} /></div>
-            <div class="app-field"><label>Accompagnateurs — dont hommes</label><input type="number" min="0" name="effectif_accomp_hommes" value="${dossier.effectif_accomp_hommes ?? ''}" ${ro('effectifs')} /></div>
-          </div>
-          <div class="js-eff-check" aria-live="polite"></div>
           <div class="app-bloc-actions">
             ${locked('effectifs') ? '' : '<button type="submit" class="app-btn app-btn-outline">Enregistrer</button>'}
             ${blocActionsHtml('effectifs')}
           </div>
         </form>
+      </div>
+
+      <div class="app-panel-section app-section-readonly">
+        <h3>Effectif définitif</h3>
+        ${renderBlocStatusPanel('effectifs_def', bState('effectifs_def'), 'client', { renseigne: effectifDefRenseigne(dossier) })}
+        <fieldset disabled class="app-fieldset-readonly" aria-describedby="effDefNote">
+          <div class="app-grid-3">
+            <div class="app-field"><label>Élèves</label><input type="number" value="${dossier.effectif_def_eleves ?? ''}" placeholder="—" disabled /></div>
+            <div class="app-field"><label>Professeurs</label><input type="number" value="${dossier.effectif_def_profs ?? ''}" placeholder="—" disabled /></div>
+            <div class="app-field"><label>Accompagnateurs</label><input type="number" value="${dossier.effectif_def_accompagnateurs ?? ''}" placeholder="—" disabled /></div>
+          </div>
+          <h4>Répartition</h4>
+          ${splitFieldsHtml('effectif_def_', dossier, 'disabled')}
+          ${totalsHtml(effectifsFrom(dossier), effectifDefRenseigne(dossier))}
+        </fieldset>
       </div>` : ''}
 
       ${dossier.client_type === 'group' ? `
@@ -361,9 +388,7 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
         effectif_prev_eleves: fd.get('effectif_prev_eleves') ? Number(fd.get('effectif_prev_eleves')) : null,
         effectif_prev_profs: fd.get('effectif_prev_profs') ? Number(fd.get('effectif_prev_profs')) : null,
         effectif_prev_accompagnateurs: fd.get('effectif_prev_accompagnateurs') ? Number(fd.get('effectif_prev_accompagnateurs')) : null,
-        effectif_def_eleves: fd.get('effectif_def_eleves') ? Number(fd.get('effectif_def_eleves')) : null,
-        effectif_def_profs: fd.get('effectif_def_profs') ? Number(fd.get('effectif_def_profs')) : null,
-        effectif_def_accompagnateurs: fd.get('effectif_def_accompagnateurs') ? Number(fd.get('effectif_def_accompagnateurs')) : null,
+        // L'effectif définitif n'est jamais envoyé : il est réservé à l'administration.
         ...Object.fromEntries(SPLIT_FIELDS.map(k => [k, fd.get(k) !== '' && fd.get(k) !== null ? Number(fd.get(k)) : null])),
       };
     }
@@ -442,13 +467,13 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
     if (!box) return;
     const fd = new FormData(form);
     const src = {};
-    ['effectif_prev_eleves', 'effectif_prev_profs', 'effectif_prev_accompagnateurs', 'effectif_def_eleves', 'effectif_def_profs', 'effectif_def_accompagnateurs', ...SPLIT_FIELDS]
+    ['effectif_prev_eleves', 'effectif_prev_profs', 'effectif_prev_accompagnateurs', ...SPLIT_FIELDS]
       .forEach(k => { src[k] = fd.get(k) === '' ? null : fd.get(k); });
-    const e = effectifsFrom(src);
+    const e = effectifsFrom(src); // prévisionnel uniquement (aucun champ définitif dans ce formulaire)
     const errs = coherenceErrors(e);
-    box.innerHTML = `<p style="background:var(--beige);border-radius:8px;padding:8px 12px;font-size:.88rem;margin:4px 0 8px;"><strong>Total groupe : ${e.total ?? '—'}</strong> · Enfants : ${e.totalEnfants ?? '—'} · Adultes : ${e.totalAdultes ?? '—'}</p>`
+    box.innerHTML = totalsHtml(e)
       + errs.map(m => `<div class="app-msg app-msg-error" style="margin:6px 0;">⚠ ${esc(m)}</div>`).join('')
-      + (errs.length ? '<p style="font-size:.8rem;color:var(--texte-clair);">Les effectifs ne pourront pas être confirmés tant que la répartition est incohérente.</p>' : '');
+      + (errs.length ? '<p style="font-size:.8rem;color:var(--texte-clair);">La validation de l\'effectif prévisionnel ne pourra pas être demandée tant que la répartition est incohérente.</p>' : '');
   }
 
   async function saveCoordonnees(form) {
@@ -484,7 +509,7 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
     if (form && !form.reportValidity()) return;
     const question = {
       coordonnees: 'Confirmer ces coordonnées ? Elles seront transmises à Les Hortensias et verrouillées pendant la vérification.',
-      effectifs: 'Confirmer ces effectifs ? Ils seront transmis à Les Hortensias et verrouillés pendant la vérification.',
+      effectifs: 'Demander la validation de l\'effectif prévisionnel ? Il sera transmis à Les Hortensias et verrouillé pendant la vérification.',
       regimes: 'Confirmer ces informations alimentaires ? Elles seront transmises à Les Hortensias et verrouillées pendant la vérification.',
     }[bloc];
     if (!window.confirm(question)) return;
@@ -495,7 +520,7 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
     }
     const { error } = await supabase.rpc('bloc_confirm_client', { p_dossier_id: dossier.id, p_bloc: bloc });
     if (error) { showMsg(msgEl, error.message); e.currentTarget.disabled = false; return; }
-    flash = { bloc, text: 'Merci ! Vos informations ont été transmises à Les Hortensias.', type: 'success' };
+    flash = { bloc, text: bloc === 'effectifs' ? 'Merci ! Votre demande de validation de l\'effectif prévisionnel a été transmise à Les Hortensias.' : 'Merci ! Vos informations ont été transmises à Les Hortensias.', type: 'success' };
     await loadAll();
   }
 

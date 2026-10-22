@@ -196,6 +196,8 @@ table.app-table a.row-link { color: var(--vert-fonce); font-weight: 700; }
 .app-overview-name { font-weight:700; color: var(--brun); text-transform: uppercase; font-size:.82rem; letter-spacing:.04em; min-width:170px; }
 .app-overview-val { flex:1; min-width:200px; font-size:.9rem; }
 .app-field input[readonly], .app-field textarea[readonly] { background: var(--gris-clair); color: var(--texte-clair); cursor: not-allowed; }
+.app-field input:disabled, .app-field textarea:disabled, .app-field select:disabled { background: var(--gris-clair); color: var(--texte-clair); cursor: not-allowed; opacity: 1; -webkit-text-fill-color: var(--texte-clair); }
+.app-fieldset-readonly { border: 0; padding: 0; margin: 0; min-width: 0; }
 .app-toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 1000; max-width: min(560px, calc(100vw - 32px)); box-shadow: var(--ombre-forte); }
 
 /* ===== Planning & Réservations (Admin) ===== */
