@@ -45,7 +45,7 @@
     let supabase, session, dossier, regimes, documents, paiements, signalements, historique, journal, acces;
     let blocs = [], blocVersions = [], blocEvents = [], docVersions = [];
     let staff = null;
-    let allergies = [], fichesEnvoyees = [], fichePreviewOpen = false;
+    let allergies = [], fichesEnvoyees = [], fichePreviewOpen = false, importLignes = [];
     let showNonRequis = false;
     let deletePanelOpen = false;
     let autresDossiersParProfil = {};
@@ -339,11 +339,12 @@
       dossier = d; regimes = r || []; documents = docs || []; paiements = pmts || []; signalements = sig || [];
       historique = hist || []; journal = journ || []; acces = accesRows || [];
       blocs = bl || []; blocVersions = bv || []; blocEvents = be || []; docVersions = dv || [];
-      const [{ data: al }, { data: fo }] = await Promise.all([
+      const [{ data: al }, { data: fo }, { data: imp }] = await Promise.all([
         supabase.from('dossier_allergies').select('*').eq('dossier_id', dossierId).order('created_at'),
         supabase.from('fiches_operationnelles').select('id, sent_at, sent_by_name, recipient, is_update, snapshot, snapshot_hash, effectifs_version, regimes_version, storage_path').eq('dossier_id', dossierId).order('sent_at', { ascending: false }),
+        supabase.from('import_lignes').select('source_file, ligne, libelle, action, effectif_brut, changes, anomalies, created_at').eq('dossier_id', dossierId).order('created_at'),
       ]);
-      allergies = al || []; fichesEnvoyees = fo || [];
+      allergies = al || []; fichesEnvoyees = fo || []; importLignes = imp || [];
 
       // Pour chaque compte client rattaché à CE dossier, retrouve ses AUTRES
       // dossiers (même compte, autres séjours) — §13 : côté Admin, l'accès à
@@ -797,6 +798,10 @@
               <div class="app-field"><label>Nombre d'adultes</label><input type="number" min="0" name="nb_adultes" value="${dossier.nb_adultes ?? ''}" /></div>
               <div class="app-field"><label>Nombre d'enfants</label><input type="number" min="0" name="nb_enfants" value="${dossier.nb_enfants ?? ''}" /></div>
             </div>
+            <div class="app-grid-2">
+              <div class="app-field"><label>Participants (si répartition inconnue)</label><input type="number" min="0" name="nb_participants" value="${dossier.nb_participants ?? ''}" /><span class="app-field-hint">Utilisé seulement si adultes et enfants ne sont pas renseignés.</span></div>
+              <div class="app-field"><label><input type="checkbox" name="sans_hebergement" ${dossier.sans_hebergement ? 'checked' : ''} /> Prestation sans hébergement (repas, réception, salle)</label></div>
+            </div>
             <div class="app-field"><label>Besoins particuliers (salle, matériel, allergies…)</label><textarea name="besoins_particuliers" rows="2">${esc(dossier.besoins_particuliers)}</textarea></div>
             <div class="app-field"><label>Remarques alimentaires</label><textarea name="remarques_alimentaires" rows="2">${esc(dossier.remarques_alimentaires)}</textarea></div>
             `}
@@ -864,6 +869,19 @@
             <div id="clientSearchResultsBox" style="margin-top:12px;"></div>
           </details>
         </div>
+
+        ${importLignes.length ? `
+        <div class="app-card">
+          <h2>Import du tableau des réservations</h2>
+          <p class="app-field-hint" style="margin:-4px 0 10px;">Informations reprises du tableau Excel : à confirmer avec le client tant que les effectifs ne sont pas validés. Visible par l'administration uniquement.</p>
+          ${importLignes.map(l => `
+            <div style="padding:8px 0;border-bottom:1px solid #eee;">
+              <strong>${esc(l.source_file)} — ligne ${l.ligne}</strong> · ${l.action === 'cree' ? 'dossier créé' : l.action === 'complete' ? 'dossier complété' : 'aucune modification'} le ${new Date(l.created_at).toLocaleDateString('fr-FR')}
+              ${l.effectif_brut ? `<br/><span style="color:var(--texte-clair);">Effectif indiqué dans le tableau : <strong>${esc(l.effectif_brut)}</strong></span>` : ''}
+              ${Object.keys(l.changes || {}).length ? `<br/><span style="font-size:.85rem;">${Object.entries(l.changes).map(([k, v]) => `${esc(k)} : ${v && typeof v === 'object' && 'avant' in v ? `${esc(v.avant ?? '—')} → ${esc(v.apres ?? '—')}` : esc(typeof v === 'object' ? JSON.stringify(v) : v)}`).join(' · ')}</span>` : ''}
+              ${(l.anomalies || []).length ? `<div class="app-msg app-msg-info" style="margin:6px 0 0;">⚠ À examiner :<br/>${l.anomalies.map(a => esc(a)).join('<br/>')}</div>` : ''}
+            </div>`).join('')}
+        </div>` : ''}
 
         <div class="app-card">
           <h2>Historique</h2>
@@ -1208,6 +1226,8 @@
               ...payload,
               nb_adultes: fd.get('nb_adultes') ? Number(fd.get('nb_adultes')) : null,
               nb_enfants: fd.get('nb_enfants') ? Number(fd.get('nb_enfants')) : null,
+              nb_participants: fd.get('nb_participants') ? Number(fd.get('nb_participants')) : null,
+              sans_hebergement: fd.get('sans_hebergement') === 'on',
               besoins_particuliers: fd.get('besoins_particuliers') || null,
             };
           }

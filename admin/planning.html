@@ -62,6 +62,7 @@
       monthKey: params.get('mois') || null,          // AAAA-MM affiché en vue Mois
       statut: STATUT_FILTERS.some(f => f.value === params.get('statut')) ? params.get('statut') : 'validee',
       type: params.get('type') || 'all',
+      showCancelled: params.get('annules') !== '0',  // annulées visibles (grisées) par défaut
       search: '',
       listMonth: 'all',
       rangeFrom: '',
@@ -85,6 +86,7 @@
       if (state.calMode === 'mois' && state.monthKey) p.set('mois', state.monthKey);
       if (state.statut !== 'validee') p.set('statut', state.statut);
       if (state.type !== 'all') p.set('type', state.type);
+      if (!state.showCancelled) p.set('annules', '0');
       history.replaceState(null, '', `${location.pathname}?${p.toString()}`);
     }
 
@@ -163,6 +165,9 @@
     }
     function resClasses(r) {
       return `pl-res pl-res-${r.type} pl-st-${r.statutGroup}${r.datesIndicatives ? ' pl-indicatif' : ''}`;
+    }
+    function cancelTag(r) {
+      return r.statutGroup === 'annulee' ? '<span class="pl-cancel-tag">ANNULÉ</span> ' : '';
     }
 
     // ---------- Rendu principal ----------
@@ -247,6 +252,7 @@
         <div class="pl-filters">
           <div class="app-filters" role="group" aria-label="Statut">
             ${STATUT_FILTERS.map(f => `<button type="button" class="app-chip ${state.statut === f.value ? 'active' : ''}" data-statut="${f.value}" aria-pressed="${state.statut === f.value}">${esc(f.label)}</button>`).join('')}
+            ${state.statut !== 'annulee' ? `<button type="button" class="app-chip ${state.showCancelled ? 'active' : ''}" id="cancelToggle" aria-pressed="${state.showCancelled}">${state.showCancelled ? '✓ Annulées affichées (grisées)' : 'Afficher les annulées'}</button>` : ''}
           </div>
           <div class="app-filters">
             <label class="pl-inline">Type
@@ -275,6 +281,7 @@
         <div class="pl-legend" aria-label="Légende">
           ${visibleTypes().map(t => `<span class="pl-res pl-res-${t.value} pl-legend-item"><span aria-hidden="true">${t.icon}</span> ${esc(t.label)}</span>`).join('')}
           ${state.statut !== 'validee' ? '<span class="pl-res pl-res-school pl-indicatif pl-legend-item">Dates indicatives</span>' : ''}
+          ${state.showCancelled || state.statut === 'annulee' ? '<span class="pl-res pl-res-school pl-st-annulee pl-legend-item"><span class="pl-cancel-tag">ANNULÉ</span> non compté</span>' : ''}
         </div>`;
     }
 
@@ -308,8 +315,8 @@
         for (let d = 1; d <= daysInMonth(m.year, m.month0); d++) {
           const iso = `${m.key}-${String(d).padStart(2, '0')}`;
           const cell = presence.get(iso);
-          const n = cell ? cell.reservations.length : 0;
-          const types = cell ? [...new Set(cell.reservations.map(r => r.type))] : [];
+          const n = cell ? cell.active : 0;
+          const types = cell ? [...new Set(cell.reservations.filter(r => r.statutGroup !== 'annulee').map(r => r.type))] : [];
           const label = cell ? `${formatLong(iso)} : ${n} groupe${n > 1 ? 's' : ''}${cell.total ? `, ${cell.total} personnes` : ''}${cell.unknown ? ` (+${cell.unknown} sans effectif)` : ''}` : formatLong(iso);
           cells += `<button type="button" class="pl-mini-day ${n ? 'pl-occ pl-occ-' + Math.min(n, 3) : ''} ${iso === TODAY ? 'pl-today' : ''}" data-day="${iso}" title="${esc(label)}" aria-label="${esc(label)}">
               <span>${d}</span>${types.length ? `<span class="pl-mini-marks">${types.map(t => `<i class="pl-mark pl-mark-${t}"></i>`).join('')}</span>` : ''}
@@ -322,7 +329,7 @@
             <ul class="pl-mini-list">
               ${inMonth.slice(0, 6).map(r => `
                 <li><button type="button" class="${resClasses(r)} pl-mini-res" data-res="${esc(r.key)}">
-                  <span aria-hidden="true">${typeInfo(r.type).icon}</span> <span class="pl-mini-dates">${formatShort(r.debut, false)}→${formatShort(r.fin, false)}</span> ${esc(r.nom)}${r.effectif.total !== null ? ` · ${r.effectif.total} p.` : ''}
+                  <span aria-hidden="true">${typeInfo(r.type).icon}</span> <span class="pl-mini-dates">${formatShort(r.debut, false)}→${formatShort(r.fin, false)}</span> ${cancelTag(r)}${esc(r.nom)}${r.effectif.total !== null ? ` · ${r.effectif.total} p.` : ''}
                 </button></li>`).join('')}
               ${inMonth.length > 6 ? `<li><button type="button" class="pl-linkbtn" data-open-month="${m.key}">+ ${inMonth.length - 6} autre${inMonth.length - 6 > 1 ? 's' : ''} — voir le mois</button></li>` : ''}
             </ul>
@@ -357,7 +364,7 @@
             <div class="pl-week" role="row" style="--lanes:${shown};">
               ${w.days.map((d, i) => {
                 const cell = presence.get(d.iso);
-                const n = cell ? cell.reservations.length : 0;
+                const n = cell ? cell.active : 0;
                 const hidden = cell ? w.segments.filter(s => s.lane >= MAX_LANES && i >= s.startCol && i < s.startCol + s.span).length : 0;
                 return `<button type="button" role="gridcell" class="pl-day ${d.inMonth ? '' : 'pl-out'} ${d.iso === TODAY ? 'pl-today' : ''} ${n > 1 ? 'pl-multi' : ''}" style="grid-column:${i + 1};" data-day="${d.iso}" aria-label="${esc(formatLong(d.iso))}${n ? ` : ${n} groupe${n > 1 ? 's' : ''}` : ''}">
                   <span class="pl-day-num">${d.day}</span>
@@ -369,9 +376,9 @@
               ${w.segments.filter(s => s.lane < MAX_LANES).map(s => `
                 <button type="button" class="${resClasses(s.r)} pl-bar ${s.continuesBefore ? 'pl-cont-before' : ''} ${s.continuesAfter ? 'pl-cont-after' : ''}"
                   style="grid-column:${s.startCol + 1} / span ${s.span}; grid-row:${s.lane + 2};"
-                  data-res="${esc(s.r.key)}" title="${esc(`${s.r.nom} — ${formatRange(s.r.debut, s.r.fin)} — ${typeInfo(s.r.type).label}${s.r.effectif.total !== null ? ` — ${s.r.effectif.total} personnes` : ''}`)}">
+                  data-res="${esc(s.r.key)}" title="${esc(`${s.r.statutGroup === 'annulee' ? 'ANNULÉ — ' : ''}${s.r.nom} —${formatRange(s.r.debut, s.r.fin)} — ${typeInfo(s.r.type).label}${s.r.effectif.total !== null ? ` — ${s.r.effectif.total} personnes` : ''}`)}">
                   <span aria-hidden="true">${typeInfo(s.r.type).icon}</span>
-                  <span class="pl-bar-text">${esc(s.r.nom)}${s.r.effectif.total !== null ? ` · ${s.r.effectif.total} p.` : ''}</span>
+                  <span class="pl-bar-text">${cancelTag(s.r)}${esc(s.r.nom)}${s.r.effectif.total !== null ? ` · ${s.r.effectif.total} p.` : ''}</span>
                 </button>`).join('')}
             </div>`;
           }).join('')}
@@ -385,7 +392,7 @@
     function agendaCard(r) {
       return `
         <button type="button" class="${resClasses(r)} pl-agenda-card" data-res="${esc(r.key)}">
-          <span class="pl-agenda-name">${esc(r.nom)}</span>
+          <span class="pl-agenda-name">${cancelTag(r)}${esc(r.nom)}</span>
           <span class="pl-agenda-meta">${esc(formatRange(r.debut, r.fin))}${r.datesIndicatives ? ' (indicatif)' : ''}</span>
           <span class="pl-agenda-meta">${typeInfo(r.type).icon} ${esc(r.programme)} · ${r.effectif.total !== null ? `${r.effectif.total} personnes` : 'Effectif non renseigné'}</span>
         </button>`;
@@ -413,7 +420,7 @@
     function renderList() {
       const rows = listRows();
       const undated = state.statut === 'validee' || state.statut === 'all' ? toComplete().filter(r => !isPlaceable(r)).length : 0;
-      const totalP = rows.reduce((s, r) => s + (r.effectif.total || 0), 0);
+      const totalP = rows.filter(r => r.statutGroup !== 'annulee').reduce((s, r) => s + (r.effectif.total || 0), 0);
       const th = (key, label) => `<th scope="col"><button type="button" class="pl-sort" data-sort="${key}" aria-label="Trier par ${label}">${label}${state.sort.key === key ? (state.sort.dir === 1 ? ' ▲' : ' ▼') : ''}</button></th>`;
       return `
         <p class="pl-sub">${rows.length} réservation${rows.length > 1 ? 's' : ''} · ${totalP.toLocaleString('fr-FR')} personnes${undated ? ` · <span class="pl-warn">${undated} réservation${undated > 1 ? 's' : ''} validée${undated > 1 ? 's' : ''} sans dates (voir « À compléter »)</span>` : ''}</p>
@@ -428,7 +435,7 @@
                 <tr class="${r.statutGroup === 'annulee' ? 'pl-row-cancel' : ''}">
                   <td data-label="Arrivée"><button type="button" class="pl-linkbtn" data-res="${esc(r.key)}">${formatShort(r.debut)}</button>${r.heureArrivee ? ` <span class="pl-muted">${esc(r.heureArrivee)}</span>` : ''}${r.datesIndicatives ? '<br/><span class="pl-muted" style="font-size:.75rem;">indicatif</span>' : ''}</td>
                   <td data-label="Départ">${formatShort(r.fin)}${r.heureDepart ? ` <span class="pl-muted">${esc(r.heureDepart)}</span>` : ''}</td>
-                  <td data-label="Client / groupe"><strong>${esc(r.nom)}</strong>${r.contact || r.commune ? `<br/><span class="pl-muted" style="font-size:.8rem;">${esc([r.contact, r.commune].filter(Boolean).join(' · '))}</span>` : ''}${r.archived ? ' <span class="app-badge app-badge-gray">📦 Archivé</span>' : ''}</td>
+                  <td data-label="Client / groupe">${cancelTag(r)}<strong>${esc(r.nom)}</strong>${r.contact || r.commune ? `<br/><span class="pl-muted" style="font-size:.8rem;">${esc([r.contact, r.commune].filter(Boolean).join(' · '))}</span>` : ''}${r.archived ? ' <span class="app-badge app-badge-gray">📦 Archivé</span>' : ''}</td>
                   <td data-label="Type">${typeTag(r)}</td>
                   <td data-label="Programme">${esc(r.programme)}</td>
                   <td data-label="Effectif">${effectifText(r, true)}</td>
@@ -463,14 +470,14 @@
       const row = (label, value) => `<div class="pl-dl-row"><dt>${label}</dt><dd>${value}</dd></div>`;
       const nights = isPlaceable(r) ? diffDays(r.debut, r.fin) : null;
       openDrawer(`
-        <h2 id="drawerTitle">${esc(r.nom)}</h2>
+        <h2 id="drawerTitle">${cancelTag(r)}${esc(r.nom)}</h2>
         ${r.numero ? `<p class="pl-muted" style="margin:-8px 0 12px;">${esc(r.numero)}</p>` : ''}
         <dl class="pl-dl">
           ${row('Type', `${typeTag(r)} <span class="pl-muted">${esc(t.label)}</span>`)}
           ${row(r.type === 'group' ? 'Formule' : 'Programme', esc(r.programme))}
           ${row('Arrivée', `${r.debut ? esc(formatShort(r.debut).replace(/\/(\d\d)$/, '/20$1')) : '<span class="pl-warn">non renseignée</span>'}${r.heureArrivee ? ` – ${esc(r.heureArrivee)}` : ''}`)}
           ${row('Départ', `${r.fin ? esc(formatShort(r.fin).replace(/\/(\d\d)$/, '/20$1')) : '<span class="pl-warn">non renseigné</span>'}${r.heureDepart ? ` – ${esc(r.heureDepart)}` : ''}`)}
-          ${nights !== null ? row('Durée', `${nights + 1} jour${nights ? 's' : ''} · ${nights} nuit${nights > 1 ? 's' : ''}${r.datesIndicatives ? ' <span class="pl-muted">(dates indicatives, non confirmées)</span>' : ''}`) : ''}
+          ${nights !== null ? row('Durée', `${nights + 1} jour${nights ? 's' : ''} · ${r.sansHebergement ? 'sans hébergement' : `${nights} nuit${nights > 1 ? 's' : ''}`}${r.datesIndicatives ? ' <span class="pl-muted">(dates indicatives, non confirmées)</span>' : ''}`) : ''}
           ${row('Effectif', r.effectif.details.length ? r.effectif.details.map(d => `${d.n} ${esc(d.label)}`).join('<br/>') : '<span class="pl-warn">non renseigné</span>')}
           ${row('Total', r.effectif.total !== null ? `<strong>${r.effectif.total} personne${r.effectif.total > 1 ? 's' : ''}</strong><br/><span class="pl-muted" style="font-size:.78rem;">${esc(r.effectif.source)}</span>` : '<span class="pl-warn">Effectif : non renseigné</span>')}
           ${row('Statut', `${statutBadge(r)}<br/><span class="pl-muted" style="font-size:.8rem;">${esc(STATUT_GROUP_LABELS[r.statutGroup] || '')}</span>${r.cancelledAt ? `<br/><span class="pl-muted" style="font-size:.8rem;">${r.cancelledAtApprox ? 'Dernière modification' : 'Annulé'} le ${new Date(r.cancelledAt).toLocaleString('fr-FR', { timeZone: 'Indian/Reunion' })}</span>` : ''}${r.archived ? '<br/><span class="app-badge app-badge-gray">📦 Dossier archivé</span>' : ''}`)}
@@ -483,16 +490,17 @@
 
     function showDay(iso) {
       const list = filtered().filter(isPlaceable).filter(r => r.debut <= iso && r.fin >= iso);
-      const total = list.reduce((s, r) => s + (r.effectif.total || 0), 0);
-      const unknown = list.filter(r => r.effectif.total === null).length;
+      const active = list.filter(r => r.statutGroup !== 'annulee');
+      const total = active.reduce((s, r) => s + (r.effectif.total || 0), 0);
+      const unknown = active.filter(r => r.effectif.total === null).length;
       openDrawer(`
         <h2 id="drawerTitle">${esc(formatLong(iso))}</h2>
         ${list.length ? `
           <ul class="pl-day-list">
             ${sortByArrival(list).map(r => `
               <li><button type="button" class="${resClasses(r)} pl-agenda-card" data-res="${esc(r.key)}">
-                <span class="pl-agenda-name">${esc(r.nom)}</span>
-                <span class="pl-agenda-meta">${typeInfo(r.type).icon} ${esc(typeInfo(r.type).short)} · ${esc(formatRange(r.debut, r.fin))}${r.debut === iso ? ' · <strong>arrivée</strong>' : ''}${r.fin === iso ? ' · <strong>départ</strong>' : ''}</span>
+                <span class="pl-agenda-name">${cancelTag(r)}${esc(r.nom)}</span>
+                <span class="pl-agenda-meta">${typeInfo(r.type).icon} ${esc(typeInfo(r.type).short)} ·${esc(formatRange(r.debut, r.fin))}${r.debut === iso ? ' · <strong>arrivée</strong>' : ''}${r.fin === iso ? ' · <strong>départ</strong>' : ''}</span>
                 <span class="pl-agenda-meta">${r.effectif.total !== null ? `${r.effectif.total} personnes` : 'Effectif non renseigné'}</span>
               </button></li>`).join('')}
           </ul>
@@ -501,7 +509,8 @@
             <strong>${total} personne${total > 1 ? 's' : ''}</strong>
           </div>
           ${unknown ? `<p class="pl-warn" style="font-size:.85rem;">+ ${unknown} séjour${unknown > 1 ? 's' : ''} sans effectif renseigné (non compté${unknown > 1 ? 's' : ''}).</p>` : ''}
-          ${list.length > 1 ? '<p class="pl-muted" style="font-size:.82rem;">Plusieurs groupes présents simultanément.</p>' : ''}
+          ${active.length > 1 ? '<p class="pl-muted" style="font-size:.82rem;">Plusieurs groupes présents simultanément.</p>' : ''}
+          ${active.length < list.length ? '<p class="pl-muted" style="font-size:.82rem;">Les réservations annulées sont affichées pour mémoire et ne sont pas comptées.</p>' : ''}
           ${state.statut !== 'validee' ? '<p class="pl-muted" style="font-size:.82rem;">Attention : le filtre de statut actif inclut des séjours non validés.</p>' : ''}`
         : '<p class="pl-muted">Aucun séjour ce jour-là pour les filtres actifs.</p>'}`);
     }
@@ -517,6 +526,8 @@
         t.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
       });
       root.querySelectorAll('[data-statut]').forEach(b => b.addEventListener('click', () => { state.statut = b.dataset.statut; render(); }));
+      const ct = document.getElementById('cancelToggle');
+      if (ct) ct.addEventListener('click', () => { state.showCancelled = !state.showCancelled; render(); });
       root.querySelectorAll('[data-calmode]').forEach(b => b.addEventListener('click', () => { state.calMode = b.dataset.calmode; render(); }));
       root.querySelectorAll('[data-open-month]').forEach(b => b.addEventListener('click', () => { state.calMode = 'mois'; state.monthKey = b.dataset.openMonth; render(); }));
       root.querySelectorAll('[data-month-step]').forEach(b => b.addEventListener('click', () => stepMonth(Number(b.dataset.monthStep))));

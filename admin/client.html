@@ -43,6 +43,15 @@
     const eur = (n) => n === null || n === undefined ? '—' : Number(n).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR' });
     const showMsg = (text, type = 'error') => { $('msg').innerHTML = `<div class="app-msg app-msg-${type}">${esc(text)}</div>`; };
 
+    // État de l'accès client (aucun envoi automatique : l'Admin décide).
+    function accesStatus(org, accesRows, users) {
+      if ((users || []).some(u => u.statut === 'actif') || accesRows.some(a => a.statut === 'compte_active')) return { label: 'Compte activé', color: 'green' };
+      if (accesRows.some(a => a.statut === 'invitation_envoyee')) return { label: 'Invitation envoyée', color: 'blue' };
+      if (org.acces_a_preparer) return { label: 'Accès à préparer', color: 'orange' };
+      return { label: 'Sans accès', color: 'gray' };
+    }
+    const statusBadge = (s) => `<span class="app-badge app-badge-${s.color}">${esc(s.label)}</span>`;
+
     async function init() {
       supabase = await getSupabaseClient();
       const { data: { session } } = await supabase.auth.getSession();
@@ -59,7 +68,7 @@
     // ---------- Liste des clients ----------
     async function renderList() {
       const { data: orgs, error } = await supabase.from('organizations')
-        .select('id, nom, type, email_contact, contact_nom, archived_at, dossiers(id)')
+        .select('id, nom, type, email_contact, contact_nom, archived_at, acces_a_preparer, dossiers(id, dossier_acces(statut)), organization_users(statut)')
         .order('nom');
       if (error) { $('content').innerHTML = ''; showMsg(error.message); return; }
       $('content').className = '';
@@ -72,7 +81,7 @@
         const rows = orgs.filter(o => !q || [o.nom, o.contact_nom, o.email_contact].some(v => (v || '').toLowerCase().includes(q)));
         $('list').innerHTML = rows.length ? rows.map(o => `
           <a class="app-card" href="client.html?id=${o.id}" style="display:block;text-decoration:none;color:inherit;">
-            <strong>${esc(o.nom)}</strong> ${o.archived_at ? '<span class="app-badge">Archivé</span>' : ''}<br/>
+            <strong>${esc(o.nom)}</strong> ${o.archived_at ? '<span class="app-badge">Archivé</span>' : ''} ${statusBadge(accesStatus(o, o.dossiers.flatMap(d => d.dossier_acces || []), o.organization_users))}<br/>
             <span style="font-size:.85rem;color:var(--texte-clair);">${esc(o.email_contact || 'Pas d’e-mail')} · ${o.dossiers.length} dossier${o.dossiers.length > 1 ? 's' : ''}</span>
           </a>`).join('') : '<p class="app-empty">Aucun client.</p>';
       };
@@ -84,7 +93,7 @@
     async function renderOrg() {
       const [{ data: org, error }, { data: dossiers }, { data: users }] = await Promise.all([
         supabase.from('organizations').select('*').eq('id', orgId).single(),
-        supabase.from('dossiers').select('*').eq('organization_id', orgId),
+        supabase.from('dossiers').select('*, dossier_acces(statut)').eq('organization_id', orgId),
         supabase.from('organization_users').select('id, role_org, statut, profile_id, profiles(full_name, email)').eq('organization_id', orgId),
       ]);
       if (error || !org) { $('content').innerHTML = ''; showMsg('Client introuvable.'); return; }
@@ -92,6 +101,7 @@
       const sorted = (dossiers || []).slice().sort((a, b) =>
         String(b.date_confirmee_debut || b.demande_date_arrivee || b.created_at).localeCompare(String(a.date_confirmee_debut || a.demande_date_arrivee || a.created_at)));
       const active = (users || []).filter(u => u.statut === 'actif').length;
+      const accStatus = accesStatus(org, (dossiers || []).flatMap(d => d.dossier_acces || []), users);
       const tot = sorted.filter(d => !d.archived_at).reduce((t, d) => {
         t.devis += Number(d.montant_facture ?? d.montant_devis ?? 0);
         t.paye += Number(d.montant_paye || 0);
@@ -118,6 +128,10 @@
 
         <div class="app-card">
           <h2>Accès client (${active} utilisateur${active > 1 ? 's' : ''} actif${active > 1 ? 's' : ''})</h2>
+          <p style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">État : ${statusBadge(accStatus)}
+            ${['Sans accès', 'Accès à préparer'].includes(accStatus.label) ? `<button class="app-btn app-btn-sm app-btn-outline" id="prepToggle" type="button">${org.acces_a_preparer ? 'Retirer « accès à préparer »' : 'Marquer « accès à préparer »'}</button>` : ''}
+            ${!org.email_contact ? '<small style="color:var(--texte-clair);">Aucun e-mail de référence.</small>' : ''}</p>
+          <p style="font-size:.85rem;color:var(--texte-clair);margin-top:-4px;">Ce repère n'envoie aucun e-mail : l'invitation se fait depuis un dossier, quand vous le décidez.</p>
           ${(users || []).length ? (users || []).map(u => `
             <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid #eee;">
               <span>${u.statut === 'actif' ? '🟢' : '⚪'} ${esc(u.profiles?.full_name || '')} <small>${esc(u.profiles?.email || '')}</small>
@@ -157,6 +171,13 @@
         }).eq('id', orgId);
         if (upErr) return showMsg(upErr.message);
         showMsg('Client mis à jour.', 'success');
+      });
+
+      const prep = $('prepToggle');
+      if (prep) prep.addEventListener('click', async () => {
+        const { error: pErr } = await supabase.from('organizations').update({ acces_a_preparer: !org.acces_a_preparer }).eq('id', orgId);
+        if (pErr) return showMsg(pErr.message);
+        renderOrg();
       });
 
       document.querySelectorAll('[data-toggle-user]').forEach(btn => btn.addEventListener('click', async () => {

@@ -295,7 +295,7 @@
 
     function demandeSummary(d) {
       if (d.client_type === 'group') {
-        const total = (d.nb_adultes || 0) + (d.nb_enfants || 0);
+        const total = (d.nb_adultes || 0) + (d.nb_enfants || 0) || d.nb_participants || 0;
         return `${total || '?'} personnes · ${d.demande_date_arrivee ? formatDateFr(d.demande_date_arrivee) : 'dates non précisées'}`;
       }
       if (d.client_type === 'colony') {

@@ -229,6 +229,8 @@ table.app-table a.row-link { color: var(--vert-fonce); font-weight: 700; }
 .pl-res:hover, .pl-res:focus-visible { filter:brightness(.95); outline:2px solid var(--pl-bd); outline-offset:1px; }
 .pl-indicatif { border-style:dashed; background:repeating-linear-gradient(135deg, var(--pl-bg) 0 6px, var(--blanc) 6px 10px); }
 .pl-st-annulee, .pl-st-refusee { opacity:.7; text-decoration:line-through; }
+.pl-res.pl-st-annulee { --pl-bg:#eeeeee; --pl-bd:#9e9e9e; --pl-fg:#616161; border-style:dashed; background:var(--pl-bg); opacity:1; text-decoration:none; }
+.pl-cancel-tag { display:inline-block; padding:0 5px; margin-right:2px; border-radius:4px; background:#757575; color:#fff; font-size:.68rem; font-weight:700; letter-spacing:.03em; text-decoration:none; vertical-align:1px; }
 .pl-row-cancel td { color:var(--texte-clair); }
 
 .pl-legend { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
