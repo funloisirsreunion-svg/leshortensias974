@@ -20,17 +20,17 @@
   <div class="app-container narrow">
     <div class="app-card app-login-card">
       <div class="app-logo"><span><img class="logo-hortensia" src="/favicon.svg?v=2" alt="" aria-hidden="true" /></span><span>Les Hortensias</span></div>
-      <h2 style="text-align:center;">Choisir un nouveau mot de passe</h2>
+      <h2 style="text-align:center;" id="pageTitle">Choisir un nouveau mot de passe</h2>
       <div id="msgBox"></div>
       <form id="pwdForm">
         <div class="app-field">
           <label for="password">Nouveau mot de passe</label>
-          <input type="password" id="password" required minlength="8" autocomplete="new-password" />
-          <p class="app-field-hint">8 caractères minimum.</p>
+          <input type="password" id="password" required minlength="10" autocomplete="new-password" />
+          <p class="app-field-hint">10 caractères minimum, avec au moins une lettre et un chiffre.</p>
         </div>
         <div class="app-field">
           <label for="password2">Confirmer le mot de passe</label>
-          <input type="password" id="password2" required minlength="8" autocomplete="new-password" />
+          <input type="password" id="password2" required minlength="10" autocomplete="new-password" />
         </div>
         <button type="submit" class="app-btn" style="width:100%;" id="submitBtn">Valider</button>
       </form>
@@ -52,8 +52,47 @@
     // envoyé par nos propres fonctions serveur (api/admin/create-teacher.js,
     // api/public/forgot-password.js) — indépendant de la configuration des URLs
     // de redirection Supabase.
+    // Lien d'accès à l'espace client envoyé par l'équipe (?invitation=<jeton>) :
+    // échangé côté serveur contre un code à usage unique (le jeton lui-même
+    // reste valable jusqu'à la définition du mot de passe ou son expiration).
+    async function establishSessionFromInvitation(token) {
+      form.style.display = 'none';
+      showMsg('Vérification du lien…', 'info');
+      const MESSAGES = {
+        expired: 'Ce lien d\'activation a expiré. Merci de contacter l\'équipe du Centre Les Hortensias (06 92 36 58 38 — contact.funloisirsreunion@gmail.com) pour recevoir un nouveau lien.',
+        replaced: 'Ce lien a été remplacé par un lien plus récent. Merci d\'utiliser le dernier e-mail reçu du Centre Les Hortensias.',
+        already_active: 'Votre espace client est déjà activé. <a href="espace-client/" style="color:var(--vert-fonce);font-weight:700;">Connectez-vous avec votre adresse e-mail et votre mot de passe</a> (lien « Mot de passe oublié ? » si besoin).',
+        invalid: 'Ce lien est invalide. Vérifiez que vous avez bien copié l\'adresse complète reçue par e-mail.',
+        error: 'Le lien n\'a pas pu être vérifié pour le moment. Merci de réessayer dans quelques instants.',
+      };
+      try {
+        const res = await fetch('/api/public/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'invitation', token }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (json.status !== 'ok') { showMsg(MESSAGES[json.status] || MESSAGES.error, json.status === 'already_active' ? 'info' : 'error'); return false; }
+        const supabase = await getSupabaseClient();
+        await supabase.auth.signOut().catch(() => {});
+        const { error } = await supabase.auth.verifyOtp({ token_hash: json.token_hash, type: 'recovery' });
+        if (error) throw error;
+        window.history.replaceState({}, '', window.location.pathname);
+        document.title = 'Activer mon espace client | Les Hortensias';
+        document.getElementById('pageTitle').textContent = json.kind === 'activation' ? 'Activer votre espace client' : 'Choisir un nouveau mot de passe';
+        showMsg(`Identifiant : <strong>${String(json.email).replace(/[&<>"']/g, '')}</strong><br/>Choisissez votre mot de passe personnel pour accéder à votre dossier de séjour.`, 'info');
+        form.style.display = '';
+        return true;
+      } catch (error) {
+        showMsg(MESSAGES.error);
+        return false;
+      }
+    }
+
     async function establishSessionFromLink() {
       const params = new URLSearchParams(window.location.search);
+      const invitation = params.get('invitation');
+      if (invitation) return establishSessionFromInvitation(invitation);
       const tokenHash = params.get('token_hash');
       const type = params.get('type');
       if (!tokenHash || !type) return true; // pas de lien à vérifier, on continue normalement
@@ -82,6 +121,10 @@
       const p1 = document.getElementById('password').value;
       const p2 = document.getElementById('password2').value;
       if (p1 !== p2) { showMsg('Les deux mots de passe ne correspondent pas.'); return; }
+      if (p1.length < 10 || !/[A-Za-z]/.test(p1) || !/[0-9]/.test(p1)) {
+        showMsg('Le mot de passe doit contenir au moins 10 caractères, dont au moins une lettre et un chiffre.');
+        return;
+      }
 
       submitBtn.disabled = true;
       submitBtn.textContent = 'Enregistrement…';

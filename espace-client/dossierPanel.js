@@ -281,7 +281,8 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
           <p style="font-size:.8rem;color:var(--texte-clair);margin:-4px 0 10px;">Une ligne par allergène (ex. arachide : 1 personne).</p>
           <div class="js-allergies">${allergies.map(a => allergieRow(a)).join('')}</div>
           ${locked('regimes') ? '' : '<button type="button" class="app-btn app-btn-sm app-btn-outline js-add-allergie" style="margin-bottom:14px;">+ Ajouter une allergie</button>'}
-          <div class="app-field"><label>Remarques alimentaires</label><textarea name="remarques_alimentaires" rows="3" ${ro('regimes')}>${esc(dossier.remarques_alimentaires)}</textarea></div>` : ''}
+          <div class="app-field"><label>Remarques alimentaires</label><textarea name="remarques_alimentaires" rows="3" ${ro('regimes')}>${esc(dossier.remarques_alimentaires)}</textarea></div>
+          ${locked('regimes') ? '' : '<p class="app-field-hint" style="margin-bottom:10px;">Aucun régime particulier ni allergie dans votre groupe ? Laissez les valeurs à 0 et cliquez sur « Confirmer les régimes alimentaires » : nous saurons qu\'il n\'y a aucune restriction.</p>'}` : ''}
           <div class="app-bloc-actions">
             ${locked('regimes') ? '' : `<button type="submit" class="app-btn${isSchool() ? ' app-btn-outline' : ''}">Enregistrer les régimes</button>`}
             ${blocActionsHtml('regimes')}
@@ -507,10 +508,16 @@ export async function mountDossierPanel({ container, supabase, dossierId, onChan
     const msgEl = container.querySelector(`.js-msg-${bloc}`);
     const form = container.querySelector(`.js-${bloc}-form`);
     if (form && !form.reportValidity()) return;
+    // Régimes tous à 0, sans allergie ni remarque : la confirmation vaut « aucune restriction ».
+    const noRestriction = bloc === 'regimes' && form
+      && [...form.querySelectorAll('input[type=number]')].every(i => !Number(i.value))
+      && ![...form.querySelectorAll('textarea, input[type=text]')].some(i => i.value.trim());
     const question = {
       coordonnees: 'Confirmer ces coordonnées ? Elles seront transmises à Les Hortensias et verrouillées pendant la vérification.',
       effectifs: 'Demander la validation de l\'effectif prévisionnel ? Il sera transmis à Les Hortensias et verrouillé pendant la vérification.',
-      regimes: 'Confirmer ces informations alimentaires ? Elles seront transmises à Les Hortensias et verrouillées pendant la vérification.',
+      regimes: noRestriction
+        ? 'Confirmer qu\'aucun participant n\'a de régime particulier ni d\'allergie alimentaire ? L\'information sera transmise à Les Hortensias.'
+        : 'Confirmer ces informations alimentaires ? Elles seront transmises à Les Hortensias et verrouillées pendant la vérification.',
     }[bloc];
     if (!window.confirm(question)) return;
     e.currentTarget.disabled = true;

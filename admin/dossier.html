@@ -29,6 +29,7 @@
   <div class="app-container" id="appRoot">
     <div class="app-loading">Chargement du dossier…</div>
   </div>
+  <div id="inviteModal" class="app-modal" hidden></div>
 
   <script type="module">
     import { getSupabaseClient } from '../lib/supabaseClient.js';
@@ -38,6 +39,8 @@
     import { buildFichePdf } from '../lib/fichePdf.js';
     import { VALIDATED_DOSSIER_STATUTS } from '../lib/planning.js';
     import { blocState, isLockedForAdmin, renderBlocStatusPanel, renderBlocHistory, renderDocumentHistory, renderDocumentDates, documentsSummary, summarizeBlocData, formatDateTimeFr, formatDateShortFr, blocLabel, BLOC_STATUTS, blocStatutInfo, effectifDefRenseigne } from '../lib/blocValidation.js';
+    import { accessStatus, infoStatuses } from '../lib/clientAccess.js';
+    import { sejourDatesLabel } from '../lib/appConstants.js';
 
     const params = new URLSearchParams(window.location.search);
     const dossierId = params.get('id');
@@ -50,6 +53,7 @@
     let deletePanelOpen = false;
     let autresDossiersParProfil = {};
     let clientSearchResults = null;
+    let invitations = [], org = null, orgDossiers = [];
 
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
     function opt(list, val, key='value', lab='label') {
@@ -134,6 +138,9 @@
       mountAdminNav(staff, '');
 
       await loadAll();
+      // Depuis « Accès clients » : ouvre directement la fenêtre de confirmation
+      // (rien n'est envoyé sans clic sur « Confirmer l'envoi »).
+      if (params.get('invite') === '1' && dossier && staff.can('clients.invite') && ['school', 'group'].includes(dossier.client_type)) openInviteModal();
     }
 
     const SPLIT_FIELDS = ['effectif_filles', 'effectif_garcons', 'effectif_profs_femmes', 'effectif_profs_hommes', 'effectif_accomp_femmes', 'effectif_accomp_hommes'];
@@ -378,6 +385,15 @@
       ]);
       allergies = al || []; fichesEnvoyees = fo || []; importLignes = imp || [];
 
+      // Suivi des accès : invitations envoyées pour ce séjour, fiche établissement
+      // et ses autres séjours (proposés, jamais cochés d'office, dans l'envoi).
+      const [{ data: inv }, { data: o }, { data: od }] = await Promise.all([
+        supabase.from('client_invitations').select('*').contains('dossier_ids', [dossierId]).order('created_at', { ascending: false }),
+        d.organization_id ? supabase.from('organizations').select('id, nom, email_contact, acces_a_preparer').eq('id', d.organization_id).maybeSingle() : Promise.resolve({ data: null }),
+        d.organization_id ? supabase.from('dossiers').select('id, numero, programme, client_type, statut, archived_at, date_confirmee_debut, date_confirmee_fin, date_proposee').eq('organization_id', d.organization_id) : Promise.resolve({ data: [] }),
+      ]);
+      invitations = inv || []; org = o || null; orgDossiers = od || [];
+
       // Pour chaque compte client rattaché à CE dossier, retrouve ses AUTRES
       // dossiers (même compte, autres séjours) — §13 : côté Admin, l'accès à
       // un client doit montrer tous ses dossiers, pas un seul à la fois.
@@ -493,6 +509,39 @@
       else if (st.statut === 'reopened' && bloc !== 'effectifs_def') txt = `🟠 Rouvert(e)s – en attente de mise à jour par le client (version ${st.version})`;
       if (st.modification_requested_at) txt += ` · 🔴 Modification demandée`;
       return `<div class="app-overview-row"><span class="app-overview-name">${esc(blocLabel(bloc))}</span><span class="app-overview-val">${txt}${extra ? `<br/><span style="color:var(--texte-clair);font-size:.85rem;">${extra}</span>` : ''}</span></div>`;
+    }
+
+    // Statut de l'accès client + informations demandées à l'enseignant (calculés
+    // depuis les données réelles : un e-mail parti ne vaut pas activation).
+    function renderAccessSummary() {
+      if (!['school', 'group'].includes(dossier.client_type)) return '';
+      const st = accessStatus({ acces, invitations, org });
+      const info = isSchool() ? infoStatuses({ dossier, blocs, regimes, allergies }) : null;
+      const canInvite = staff.can('clients.invite');
+      const resend = ['envoyee', 'expiree', 'activee'].includes(st.key);
+      const row = (label, s) => `<div class="app-overview-row"><span class="app-overview-name">${label}</span><span class="app-overview-val"><span class="app-badge app-badge-${s.color}">${esc(s.label)}</span>${s.detail ? ` <span style="font-size:.82rem;color:var(--texte-clair);">(${esc(s.detail)})</span>` : ''}</span></div>`;
+      return `
+        <div class="app-card" id="accessSummaryCard">
+          <h2>Espace client</h2>
+          <div id="msgInvite"></div>
+          <div class="app-overview-row"><span class="app-overview-name">Accès client</span><span class="app-overview-val"><span class="app-badge app-badge-${st.color}">${esc(st.label)}</span></span></div>
+          <p style="font-size:.86rem;color:var(--texte-clair);margin:8px 0 12px;">
+            ${st.lastSentAt ? `Dernier envoi : <strong>${fmtDT(st.lastSentAt)}</strong>${st.lastSentBy ? ' par ' + esc(st.lastSentBy) : ''}${st.lastEmail ? ' à ' + esc(st.lastEmail) : ''}.` : 'Aucun e-mail d\'accès envoyé pour ce séjour.'}
+            ${st.activatedAt ? `<br/>Compte activé le <strong>${fmtDT(st.activatedAt)}</strong> (mot de passe défini par l'enseignant).` : ''}
+            ${st.key === 'envoyee' && st.expiresAt ? `<br/>Lien valable jusqu'au ${fmtDT(st.expiresAt)} — compte pas encore activé.` : ''}
+            ${st.key === 'expiree' ? `<br/>Le lien d'activation a expiré le ${fmtDT(st.expiresAt)} sans être utilisé : renvoyez l'invitation.` : ''}
+            ${st.error ? `<br/><span style="color:#a5230e;">Dernier envoi échoué : ${esc(st.error)}</span>` : ''}
+          </p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            ${canInvite ? `<button type="button" class="app-btn" id="openInviteBtn">${resend ? '📧 Renvoyer l\'invitation' : '📧 Envoyer l\'accès à l\'espace client'}</button>` : ''}
+            <button type="button" class="app-btn app-btn-outline" id="refreshAccessBtn">🔄 Vérifier l'activation</button>
+          </div>
+          ${info ? `
+          <h3 style="margin-top:20px;">Informations demandées</h3>
+          ${row('Effectif prévisionnel', info.effectifs)}
+          ${row('Répartition pour le couchage', info.couchage)}
+          ${row('Restrictions alimentaires', info.regimes)}` : ''}
+        </div>`;
     }
 
     function renderOverview() {
@@ -688,6 +737,8 @@
             <button type="submit" class="app-btn" style="margin-top:12px;">Enregistrer</button>
           </form>
         </div>
+
+        ${renderAccessSummary()}
 
         ${renderOverview()}
 
@@ -897,17 +948,12 @@
               ${a.statut === 'desactive'
                 ? `<button class="app-btn app-btn-sm app-btn-outline" data-toggle-access="enable" data-user-id="${p?.id}">Réactiver</button>`
                 : `
-                  <button class="app-btn app-btn-sm app-btn-outline" data-resend-access="${esc(p?.email || '')}" data-name="${esc(p?.full_name || '')}">${a.statut === 'invitation_envoyee' ? 'Renvoyer les identifiants' : 'Renvoyer l’accès'}</button>
+                  ${staff.can('clients.invite') ? `<button class="app-btn app-btn-sm app-btn-outline" data-resend-access="${esc(p?.email || '')}" data-name="${esc(p?.full_name || '')}">${a.statut === 'invitation_envoyee' ? 'Renvoyer l’invitation' : 'Renvoyer l’accès'}</button>` : ''}
                   <button class="app-btn app-btn-sm app-btn-danger" data-toggle-access="disable" data-user-id="${p?.id}">Désactiver</button>
                 `}
             </div>`;
-          }).join('') : `<p style="font-size:.85rem;color:var(--texte-clair);margin-bottom:12px;">Aucun accès créé. À faire une fois le devis accepté.</p>`}
-          <form id="teacherForm" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-top:16px;">
-            <div class="app-field" style="margin:0;"><label>Nom</label><input type="text" name="fullName" /></div>
-            <div class="app-field" style="margin:0;flex:1;min-width:200px;"><label>E-mail *</label><input type="email" name="email" id="teacherEmailInput" required /></div>
-            <button type="submit" class="app-btn app-btn-sm">Créer / ajouter un accès client</button>
-          </form>
-          <div id="emailDupeHint" style="margin-top:10px;"></div>
+          }).join('') : `<p style="font-size:.85rem;color:var(--texte-clair);margin-bottom:12px;">Aucun compte n'a encore accès à ce séjour. Utilisez « Envoyer l'accès à l'espace client » ci-dessus.</p>`}
+          <p style="font-size:.8rem;color:var(--texte-clair);margin-top:10px;">Chaque compte n'accède qu'aux séjours qui lui ont été ouverts ici. Les mots de passe ne sont jamais visibles par l'administration.</p>
 
           <details style="margin-top:20px;">
             <summary style="cursor:pointer;color:var(--vert-fonce);font-weight:700;">Rattacher ce dossier à un client existant</summary>
@@ -1354,22 +1400,10 @@
         });
       }
 
-      const teacherForm = document.getElementById('teacherForm');
-      if (teacherForm) {
-        teacherForm.addEventListener('submit', async (e) => {
-          e.preventDefault();
-          const fd = new FormData(e.target);
-          await createTeacherAccess(fd.get('email'), fd.get('fullName'));
-        });
-      }
-      const teacherEmailInput = document.getElementById('teacherEmailInput');
-      if (teacherEmailInput) {
-        let dupeTimer;
-        teacherEmailInput.addEventListener('input', () => {
-          clearTimeout(dupeTimer);
-          dupeTimer = setTimeout(() => checkEmailDupe(teacherEmailInput.value), 400);
-        });
-      }
+      const openInviteBtn = document.getElementById('openInviteBtn');
+      if (openInviteBtn) openInviteBtn.addEventListener('click', () => openInviteModal());
+      const refreshAccessBtn = document.getElementById('refreshAccessBtn');
+      if (refreshAccessBtn) refreshAccessBtn.addEventListener('click', async () => { await loadAll(); toast('Statut de l\'accès mis à jour.', 'success'); });
       const clientSearchBtn = document.getElementById('clientSearchBtn');
       const clientSearchInput = document.getElementById('clientSearchInput');
       if (clientSearchBtn && clientSearchInput) {
@@ -1379,7 +1413,7 @@
       }
       if (clientSearchResults) renderClientSearchResults();
       document.querySelectorAll('[data-resend-access]').forEach(btn => {
-        btn.addEventListener('click', () => createTeacherAccess(btn.dataset.resendAccess, btn.dataset.name));
+        btn.addEventListener('click', () => openInviteModal(btn.dataset.resendAccess, btn.dataset.name));
       });
       document.querySelectorAll('[data-toggle-access]').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -1540,25 +1574,6 @@
       } catch { /* non bloquant */ }
     }
 
-    // Détection en direct (§14) : dès que l'admin saisit une adresse e-mail déjà
-    // connue, on le prévient AVANT l'envoi — le compte existant sera rattaché,
-    // jamais dupliqué, jamais de nouveau mot de passe envoyé.
-    async function checkEmailDupe(rawEmail) {
-      const hint = document.getElementById('emailDupeHint');
-      if (!hint) return;
-      const email = (rawEmail || '').trim().toLowerCase();
-      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { hint.innerHTML = ''; return; }
-      const { data: match } = await supabase.from('profiles').select('id, role, full_name, email').ilike('email', email).maybeSingle();
-      if (!match) { hint.innerHTML = ''; return; }
-      if (match.role === 'admin') {
-        hint.innerHTML = `<div class="app-msg app-msg-error">Cette adresse appartient à un compte administrateur — impossible de l'utiliser comme accès client.</div>`;
-        return;
-      }
-      const dejaCeDossier = acces.some(a => a.profile_id === match.id);
-      if (dejaCeDossier) { hint.innerHTML = `<div class="app-msg app-msg-info">Ce compte a déjà accès à ce dossier.</div>`; return; }
-      hint.innerHTML = `<div class="app-msg app-msg-info">Un espace client existe déjà pour cette adresse (${esc(match.full_name || match.email)}). Ce dossier sera simplement rattaché à ce compte existant — aucun nouveau mot de passe ne sera envoyé.</div>`;
-    }
-
     // Rattachement manuel à un client existant (§15) : recherche par établissement,
     // nom de contact ou e-mail, parmi les comptes clients déjà créés.
     async function searchExistingClients(query) {
@@ -1604,29 +1619,132 @@
         </div>`).join('');
       box.querySelectorAll('[data-attach-existing]').forEach(btn => {
         btn.addEventListener('click', async () => {
-          if (!window.confirm(`Rattacher ce dossier au compte existant ${btn.dataset.attachExisting} ?`)) return;
-          clientSearchResults = null;
-          await createTeacherAccess(btn.dataset.attachExisting, btn.dataset.attachName);
+          openInviteModal(btn.dataset.attachExisting, btn.dataset.attachName);
         });
       });
     }
 
-    async function createTeacherAccess(email, fullName) {
-      showMsg('msgTeacher', 'Création en cours…', 'info');
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const res = await fetch('/api/admin/create-teacher', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-          body: JSON.stringify({ dossierId, email, fullName }),
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || 'Échec.');
-        showMsg('msgTeacher', json.emailSent ? (json.credentialsSent ? 'Identifiants envoyés par e-mail (mot de passe provisoire à changer à la première connexion).' : 'Dossier rattaché au compte existant, e-mail d’information envoyé (aucun nouveau mot de passe).') : `Accès enregistré mais l'e-mail n'a pas pu être envoyé (${esc(json.emailError || '')}).`, json.emailSent ? 'success' : 'info');
-        await loadAll();
-      } catch (error) {
-        showMsg('msgTeacher', error.message);
+    // ---------------------------------------------------------
+    // « Envoyer l'accès à l'espace client » : fenêtre de confirmation avec
+    // destinataire, séjours, aperçu exact de l'e-mail. Rien n'est créé ni envoyé
+    // avant le clic sur « Confirmer l'envoi ».
+    // ---------------------------------------------------------
+    async function inviteApi(body) {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/admin/create-teacher', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ dossierId, ...body }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Échec.');
+      return json;
+    }
+
+    function inviteSejours() {
+      const list = orgDossiers.length ? orgDossiers : [dossier];
+      return list
+        .filter(d => d.id === dossier.id || (!d.archived_at && !['annule', 'refusee'].includes(d.statut) && d.client_type === dossier.client_type))
+        .sort((a, b) => String(a.date_confirmee_debut || a.date_proposee || '').localeCompare(String(b.date_confirmee_debut || b.date_proposee || '')));
+    }
+
+    function openInviteModal(prefillEmail, prefillName) {
+      const modal = document.getElementById('inviteModal');
+      const firstAccess = acces.find(a => a.statut !== 'desactive' && a.profiles);
+      const email = prefillEmail || (firstAccess && firstAccess.profiles.email) || dossier.contact_email || (org && org.email_contact) || '';
+      const name = prefillName || [dossier.contact_prenom, dossier.contact_nom].filter(Boolean).join(' ');
+      const PROG = { volcan: 'Classe Volcan', nature: 'Classe Nature' };
+      modal.innerHTML = `
+        <div class="app-modal-box" role="dialog" aria-modal="true" aria-labelledby="inviteTitle">
+          <h2 id="inviteTitle">Envoyer l'accès à l'espace client</h2>
+          <div class="app-overview-row"><span class="app-overview-name">École</span><span class="app-overview-val"><strong>${esc(dossier.etablissement || dossier.structure_nom || '—')}</strong>${dossier.commune ? ' — ' + esc(dossier.commune) : ''}</span></div>
+          <div class="app-field" style="margin-top:12px;"><label for="invName">Nom du contact</label><input type="text" id="invName" value="${esc(name)}" /></div>
+          <div class="app-field"><label for="invEmail">Adresse e-mail destinataire *</label><input type="email" id="invEmail" value="${esc(email)}" required autocomplete="off" /></div>
+          <fieldset class="app-field" style="border:0;padding:0;">
+            <legend style="font-weight:700;margin-bottom:6px;">Séjour(s) ouvert(s) à ce compte</legend>
+            ${inviteSejours().map(d => `
+              <label style="display:flex;gap:8px;align-items:flex-start;font-weight:400;margin:4px 0;">
+                <input type="checkbox" class="js-inv-sejour" value="${d.id}" ${d.id === dossier.id ? 'checked disabled' : ''} />
+                <span>${esc(PROG[d.programme] || 'Séjour')} — ${esc(sejourDatesLabel(d))} <span style="color:var(--texte-clair);">(${esc(d.numero || '')}${d.id === dossier.id ? ', ce dossier' : ''})</span></span>
+              </label>`).join('')}
+            <p class="app-field-hint">Seuls les séjours cochés seront visibles par ce compte. Les autres séjours de l'établissement restent fermés.</p>
+          </fieldset>
+          <div id="invAccount"></div>
+          <label id="invResetWrap" style="display:none;gap:8px;align-items:center;font-weight:400;margin:8px 0;">
+            <input type="checkbox" id="invReset" /> Joindre un lien sécurisé de réinitialisation du mot de passe
+          </label>
+          <h3 style="margin-top:14px;">Aperçu de l'e-mail</h3>
+          <p style="font-size:.86rem;margin:0 0 6px;"><strong>Objet :</strong> <span id="invSubject">—</span></p>
+          <iframe id="invPreview" title="Aperçu de l'e-mail d'invitation" style="width:100%;height:340px;border:1px solid var(--beige-fonce);border-radius:8px;background:#fff;"></iframe>
+          <div id="invMsg" style="margin-top:10px;"></div>
+          <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:14px;">
+            <button type="button" class="app-btn app-btn-outline" id="invCancel">Annuler</button>
+            <button type="button" class="app-btn" id="invConfirm" disabled>Confirmer l'envoi</button>
+          </div>
+        </div>`;
+      modal.hidden = false;
+      document.body.style.overflow = 'hidden';
+
+      const $ = (id) => document.getElementById(id);
+      const close = () => { modal.hidden = true; modal.innerHTML = ''; document.body.style.overflow = ''; };
+      const params = () => ({
+        email: $('invEmail').value.trim(),
+        fullName: $('invName').value.trim(),
+        dossierIds: [...modal.querySelectorAll('.js-inv-sejour:checked')].map(c => c.value),
+        includeReset: $('invReset').checked,
+      });
+      let seq = 0, previewOk = false;
+      async function refreshPreview() {
+        const p = params();
+        const mine = ++seq;
+        previewOk = false;
+        $('invConfirm').disabled = true;
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.email)) { $('invAccount').innerHTML = '<div class="app-msg app-msg-info">Saisissez l\'adresse e-mail du destinataire.</div>'; return; }
+        $('invAccount').innerHTML = '<div class="app-msg app-msg-info">Vérification du compte…</div>';
+        try {
+          const r = await inviteApi({ action: 'preview', ...p });
+          if (mine !== seq) return;
+          const other = r.otherDossiersCount ? ` Ce compte a déjà accès à ${r.otherDossiersCount} autre(s) séjour(s), qui ne changent pas.` : '';
+          $('invAccount').innerHTML = {
+            new: '<div class="app-msg app-msg-info">Aucun compte pour cette adresse : un compte client sera créé et l\'enseignant recevra un <strong>lien d\'activation</strong> (valable 30 jours) pour choisir lui-même son mot de passe.</div>',
+            pending: `<div class="app-msg app-msg-info">Un compte existe déjà pour cette adresse mais <strong>n'a pas encore été activé</strong> : aucun doublon ne sera créé, un nouveau lien d'activation remplacera l'ancien.${other}</div>`,
+            activated: `<div class="app-msg app-msg-info">Un compte <strong>déjà activé</strong> existe pour cette adresse : aucun doublon, son mot de passe et ses droits ne sont pas modifiés. Les séjours cochés lui seront ajoutés.${other}</div>`,
+          }[r.account] + (r.disabled.length ? `<div class="app-msg app-msg-error">Accès désactivé pour : ${r.disabled.map(x => esc(x.numero)).join(', ')} — non rouvert par cet envoi.</div>` : '');
+          $('invResetWrap').style.display = r.account === 'activated' ? 'flex' : 'none';
+          $('invSubject').textContent = r.subject;
+          $('invPreview').srcdoc = r.html;
+          $('invConfirm').textContent = `Confirmer l'envoi à ${p.email}`;
+          previewOk = true;
+          $('invConfirm').disabled = false;
+        } catch (error) {
+          if (mine !== seq) return;
+          $('invAccount').innerHTML = `<div class="app-msg app-msg-error">${esc(error.message)}</div>`;
+        }
       }
+      let timer;
+      const debounced = () => { clearTimeout(timer); timer = setTimeout(refreshPreview, 400); };
+      $('invEmail').addEventListener('input', debounced);
+      modal.querySelectorAll('.js-inv-sejour, #invReset').forEach(el => el.addEventListener('change', refreshPreview));
+      $('invCancel').addEventListener('click', close);
+      modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+      $('invConfirm').addEventListener('click', async () => {
+        if (!previewOk) return;
+        const p = params();
+        $('invConfirm').disabled = true;
+        $('invConfirm').textContent = 'Envoi…';
+        try {
+          const r = await inviteApi({ action: 'send', ...p });
+          close();
+          if (r.emailSent) toast(`Invitation envoyée à ${p.email}.`, 'success');
+          else toast(`Accès préparé mais l'e-mail n'a pas pu partir (${r.emailError || 'erreur inconnue'}). Réessayez avec « Renvoyer l'invitation ».`, 'error');
+          await loadAll();
+        } catch (error) {
+          $('invMsg').innerHTML = `<div class="app-msg app-msg-error">${esc(error.message)}</div>`;
+          $('invConfirm').disabled = false;
+          $('invConfirm').textContent = `Confirmer l'envoi à ${p.email}`;
+        }
+      });
+      refreshPreview();
     }
 
     document.getElementById('logoutBtn').addEventListener('click', async () => {

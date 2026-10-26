@@ -1,50 +1,41 @@
-import { randomInt } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { Resend } from 'resend';
 import { getSupabaseAdmin } from '../../lib/supabaseAdmin.js';
 import { requirePermission, hasPermission } from '../../lib/requireAdmin.js';
+import { sejourDatesLabel } from '../../lib/appConstants.js';
+import { INVITATION_VALIDITY_DAYS } from '../../lib/clientAccess.js';
 import {
-  buildNewDossierLinkedSubject, buildNewDossierLinkedHtml,
-  buildCredentialsSubject, buildCredentialsHtml,
+  CLIENT_ACCESS_SITE, buildClientAccessSubject, buildClientAccessHtml, buildClientAccessText,
 } from '../../lib/teacherInviteEmail.js';
 
-// Crée (ou raccroche) un accès client pour un dossier donné.
-// Nouveau compte : compte Supabase Auth (identifiant = e-mail) + mot de passe
-// provisoire aléatoire envoyé par e-mail, à remplacer obligatoirement à la
-// première connexion (profiles.must_change_password, appliqué en RLS). Le mot
-// de passe n'est jamais stocké dans les tables applicatives.
-// Compte existant et activé : AUCUN nouveau mot de passe, le dossier est
-// simplement rattaché (dossier_acces) et le client prévenu.
-// Compte existant jamais activé (mot de passe provisoire jamais remplacé) :
-// nouveau mot de passe provisoire (l'ancien devient inutilisable).
-// Un même e-mail n'est jamais dupliqué.
+// Accès à l'espace client, envoyé à la demande depuis l'Admin (jamais en masse :
+// un destinataire par appel, choisi par l'Admin après aperçu).
+//
+// action 'preview' : aucune écriture, aucun envoi — renvoie l'état du compte et
+//   l'e-mail exact qui partira (le lien y est remplacé par un exemple).
+// action 'send'    : crée ou rattache le compte puis envoie l'e-mail.
+//
+// Nouveau compte : compte Supabase Auth SANS mot de passe + lien d'activation
+// personnel (jeton aléatoire, seule son empreinte est stockée) : l'enseignant
+// définit lui-même son mot de passe. Compte existant non activé : nouveau lien,
+// l'ancien devient inutilisable. Compte existant activé : aucun changement de
+// mot de passe ni de rôle ; lien de réinitialisation uniquement si l'Admin le
+// demande. Un même e-mail n'est jamais dupliqué ; deux établissements qui
+// partagent une adresse gardent leurs fiches et leurs séjours séparés : seuls
+// les séjours cochés sont ouverts au compte (dossier_acces).
+
+const MAX_DOSSIERS = 12;
+const MIN_SECONDS_BETWEEN_SENDS = 60;
 
 function isValidEmail(email) {
-  return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
-function siteUrl() {
-  return process.env.SITE_URL || 'https://leshortensias974.fr';
-}
-
-// Mot de passe provisoire : 12 caractères tirés avec un générateur cryptographique,
-// sans caractères ambigus (0/O, 1/l/I), avec au moins une majuscule, une minuscule,
-// un chiffre et un symbole simple.
-export function generateTemporaryPassword() {
-  const sets = ['ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnpqrstuvwxyz', '23456789', '-_!?'];
-  const all = sets.join('');
-  const chars = sets.map((set) => set[randomInt(set.length)]);
-  while (chars.length < 12) chars.push(all[randomInt(all.length)]);
-  for (let i = chars.length - 1; i > 0; i -= 1) {
-    const j = randomInt(i + 1);
-    [chars[i], chars[j]] = [chars[j], chars[i]];
-  }
-  return chars.join('');
-}
+const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 
 async function findUserByEmail(supabaseAdmin, email) {
-  // L'API admin de Supabase (JS) ne permet pas de filtrer par e-mail côté serveur ;
-  // à l'échelle de ce site (quelques dizaines/centaines de comptes), une pagination
-  // simple suffit largement.
+  // L'API admin de Supabase (JS) ne filtre pas par e-mail : pagination simple,
+  // suffisante à l'échelle du site.
   let page = 1;
   const perPage = 1000;
   while (true) {
@@ -57,18 +48,24 @@ async function findUserByEmail(supabaseAdmin, email) {
   }
 }
 
-async function sendMail({ to, subject, html }) {
-  if (!process.env.RESEND_API_KEY) return { sent: false, error: 'RESEND_API_KEY non configuré.' };
+async function sendMail({ to, subject, html, text }) {
+  if (!process.env.RESEND_API_KEY) return { sent: false, id: null, error: 'RESEND_API_KEY non configuré.' };
   try {
     const resend = new Resend(process.env.RESEND_API_KEY);
     const from = process.env.EMAIL_FROM
-      || (process.env.RESEND_EMAIL_DOMAIN ? `Fun Loisirs Réunion <inscriptions@${process.env.RESEND_EMAIL_DOMAIN}>` : 'Fun Loisirs Réunion <onboarding@resend.dev>');
-    const { error } = await resend.emails.send({ from, to, subject, html });
+      || (process.env.RESEND_EMAIL_DOMAIN ? `Centre Les Hortensias <inscriptions@${process.env.RESEND_EMAIL_DOMAIN}>` : 'Centre Les Hortensias <onboarding@resend.dev>');
+    const replyTo = process.env.EMAIL_REPLY_TO || 'contact.funloisirsreunion@gmail.com';
+    const { data, error } = await resend.emails.send({ from, to, subject, html, text, replyTo });
     if (error) throw new Error(error.message || JSON.stringify(error));
-    return { sent: true, error: null };
+    return { sent: true, id: data && data.id, error: null };
   } catch (error) {
-    return { sent: false, error: error.message };
+    return { sent: false, id: null, error: error.message };
   }
+}
+
+function sejourLine(d) {
+  const prog = d.programme === 'volcan' ? 'Classe Volcan' : d.programme === 'nature' ? 'Classe Nature' : d.client_type === 'group' ? 'Séjour de groupe' : 'Classe découverte';
+  return `${prog} — ${sejourDatesLabel(d)}${d.numero ? ` (dossier ${d.numero})` : ''}`;
 }
 
 export default async function handler(req, res) {
@@ -83,156 +80,208 @@ export default async function handler(req, res) {
     return res.status(error.status || 401).json({ error: error.message });
   }
 
-  const { dossierId, email, fullName } = req.body || {};
-  if (!dossierId || typeof dossierId !== 'string') {
-    return res.status(400).json({ error: 'dossierId manquant.' });
-  }
-  if (!isValidEmail(email)) {
-    return res.status(400).json({ error: 'Adresse e-mail invalide.' });
-  }
+  const { action = 'send', dossierId, dossierIds = [], email, fullName, includeReset = false } = req.body || {};
+  if (!['preview', 'send'].includes(action)) return res.status(400).json({ error: 'Action inconnue.' });
+  if (!dossierId || typeof dossierId !== 'string') return res.status(400).json({ error: 'dossierId manquant.' });
+  if (!Array.isArray(dossierIds)) return res.status(400).json({ error: 'dossierIds invalide.' });
+  if (!isValidEmail(email)) return res.status(400).json({ error: 'Adresse e-mail invalide.' });
+  const ids = [...new Set([dossierId, ...dossierIds.filter(x => typeof x === 'string')])];
+  if (ids.length > MAX_DOSSIERS) return res.status(400).json({ error: 'Trop de séjours sélectionnés.' });
   const normalizedEmail = email.trim().toLowerCase();
   const supabaseAdmin = getSupabaseAdmin();
 
-  const { data: dossier, error: dossierError } = await supabaseAdmin
-    .from('dossiers').select('*').eq('id', dossierId).single();
-  if (dossierError || !dossier) {
-    return res.status(404).json({ error: 'Dossier introuvable.' });
+  // ---- Séjours : tous du même établissement que le dossier ouvert
+  const { data: dossiers, error: dErr } = await supabaseAdmin.from('dossiers').select('*').in('id', ids);
+  if (dErr) return res.status(500).json({ error: 'Lecture des dossiers impossible : ' + dErr.message });
+  const primary = (dossiers || []).find(d => d.id === dossierId);
+  if (!primary) return res.status(404).json({ error: 'Dossier introuvable.' });
+  if ((dossiers || []).length !== ids.length) return res.status(404).json({ error: 'Un des séjours sélectionnés est introuvable.' });
+  if (dossiers.some(d => d.client_type === 'colony')) {
+    return res.status(400).json({ error: 'Les colonies n\'ont pas d\'espace client.' });
   }
-  if (dossier.client_type === 'colony' && !hasPermission(auth, 'colonies.manage')) {
-    return res.status(403).json({ error: 'Votre rôle ne permet pas d\'accéder aux dossiers Colonies.' });
+  if (ids.length > 1 && (!primary.organization_id || dossiers.some(d => d.organization_id !== primary.organization_id))) {
+    return res.status(400).json({ error: 'Les séjours sélectionnés doivent appartenir au même établissement.' });
   }
+  for (const d of dossiers) {
+    const p = d.client_type === 'group' ? 'groups.read' : 'classes.read';
+    if (!hasPermission(auth, p)) return res.status(403).json({ error: 'Votre rôle ne permet pas d\'accéder à ces dossiers.' });
+  }
+  const ordered = ids.map(id => dossiers.find(d => d.id === id));
 
+  // ---- Compte : jamais de doublon, jamais de compte interne
   let existingUser;
   try {
     existingUser = await findUserByEmail(supabaseAdmin, normalizedEmail);
   } catch (error) {
     return res.status(500).json({ error: 'Échec de la recherche du compte : ' + error.message });
   }
-
   let existingProfile = null;
   if (existingUser) {
-    const { data } = await supabaseAdmin
-      .from('profiles').select('role, full_name, must_change_password').eq('id', existingUser.id).maybeSingle();
+    const { data } = await supabaseAdmin.from('profiles')
+      .select('id, role, full_name, must_change_password').eq('id', existingUser.id).maybeSingle();
     existingProfile = data;
     if (existingProfile && existingProfile.role === 'admin') {
-      return res.status(409).json({ error: 'Cette adresse e-mail est déjà utilisée par un compte administrateur.' });
+      return res.status(409).json({ error: 'Cette adresse e-mail est celle d\'un compte de l\'équipe interne : elle ne peut pas servir d\'accès client.' });
     }
   }
+  // Activé = l'enseignant a défini son mot de passe et s'est déjà connecté.
+  const activated = !!(existingUser && existingProfile && !existingProfile.must_change_password && existingUser.last_sign_in_at);
+  const mode = activated ? (includeReset ? 'reinitialisation' : 'information') : 'activation';
 
-  // Un compte existant n'est "activé" que si le client s'est déjà connecté ET a
-  // remplacé son mot de passe provisoire.
-  const existingActivated = !!(existingUser && existingUser.last_sign_in_at
-    && !(existingProfile && existingProfile.must_change_password));
-  const displayName = fullName || (existingProfile && existingProfile.full_name) || null;
+  const { data: accesRows } = existingUser
+    ? await supabaseAdmin.from('dossier_acces').select('dossier_id, statut').eq('profile_id', existingUser.id)
+    : { data: [] };
+  const accesByDossier = Object.fromEntries((accesRows || []).map(a => [a.dossier_id, a.statut]));
+  const disabled = ordered.filter(d => accesByDossier[d.id] === 'desactive');
+  const sendable = ordered.filter(d => accesByDossier[d.id] !== 'desactive');
+  const otherDossierIds = (accesRows || []).map(a => a.dossier_id).filter(id => !ids.includes(id));
 
-  let userId, isNewAccount, temporaryPassword = null;
+  const emailParams = {
+    mode,
+    email: normalizedEmail,
+    validityDays: INVITATION_VALIDITY_DAYS[mode] || null,
+    etablissement: primary.etablissement || primary.structure_nom || null,
+    sejours: sendable.map(sejourLine),
+  };
 
+  if (action === 'preview') {
+    const sample = mode === 'information' ? null : CLIENT_ACCESS_SITE + 'reinitialiser-mot-de-passe.html?invitation=…';
+    return res.status(200).json({
+      ok: true,
+      mode,
+      account: existingUser ? (activated ? 'activated' : 'pending') : 'new',
+      otherDossiersCount: otherDossierIds.length,
+      disabled: disabled.map(d => ({ id: d.id, numero: d.numero })),
+      subject: buildClientAccessSubject(),
+      html: buildClientAccessHtml({ ...emailParams, link: sample }),
+    });
+  }
+
+  if (!sendable.length) {
+    return res.status(409).json({ error: 'L\'accès de ce compte a été désactivé pour ce séjour : réactivez-le d\'abord.' });
+  }
+
+  // Double clic / envoi répété : un seul e-mail par minute et par adresse.
+  const { data: recent } = await supabaseAdmin.from('client_invitations')
+    .select('id').eq('email', normalizedEmail).eq('statut', 'envoyee')
+    .gte('sent_at', new Date(Date.now() - MIN_SECONDS_BETWEEN_SENDS * 1000).toISOString()).limit(1);
+  if (recent && recent.length) {
+    return res.status(429).json({ error: 'Un e-mail vient déjà d\'être envoyé à cette adresse. Patientez une minute avant de renvoyer.' });
+  }
+
+  // ---- Création / mise à jour du compte
+  let userId, isNewAccount = false;
+  const displayName = (fullName && String(fullName).trim()) || null;
   if (existingUser) {
     userId = existingUser.id;
-    isNewAccount = false;
-    const { error: profileError } = await supabaseAdmin.from('profiles').upsert({
-      id: userId, role: 'client', full_name: displayName, email: normalizedEmail,
-    });
-    if (profileError) return res.status(500).json({ error: 'Échec de mise à jour du profil : ' + profileError.message });
-
-    if (!existingActivated) {
-      temporaryPassword = generateTemporaryPassword();
-      const { error: pwdError } = await supabaseAdmin.auth.admin.updateUserById(userId, {
-        password: temporaryPassword, email_confirm: true,
+    if (!existingProfile) {
+      const { error } = await supabaseAdmin.from('profiles').insert({
+        id: userId, role: 'client', full_name: displayName, email: normalizedEmail, must_change_password: !activated,
       });
-      if (pwdError) return res.status(500).json({ error: 'Échec de la génération du mot de passe provisoire : ' + pwdError.message });
-      // APRÈS le changement de mot de passe : le trigger Auth lève le drapeau à
-      // chaque changement, il doit donc être reposé ensuite.
-      const { error: flagError } = await supabaseAdmin.from('profiles')
-        .update({ must_change_password: true, password_changed_at: null }).eq('id', userId);
-      if (flagError) return res.status(500).json({ error: 'Échec de l\'activation du changement obligatoire : ' + flagError.message });
+      if (error) return res.status(500).json({ error: 'Échec de création du profil : ' + error.message });
+    } else {
+      const patch = {};
+      if (!existingProfile.full_name && displayName) patch.full_name = displayName;
+      if (!activated && !existingProfile.must_change_password) patch.must_change_password = true;
+      if (Object.keys(patch).length) {
+        const { error } = await supabaseAdmin.from('profiles').update(patch).eq('id', userId);
+        if (error) return res.status(500).json({ error: 'Échec de mise à jour du profil : ' + error.message });
+      }
     }
   } else {
-    temporaryPassword = generateTemporaryPassword();
     const { data: created, error: createError } = await supabaseAdmin.auth.admin.createUser({
       email: normalizedEmail,
-      password: temporaryPassword,
       email_confirm: true,
-      user_metadata: { full_name: fullName || null },
+      user_metadata: { full_name: displayName },
     });
     if (createError) return res.status(500).json({ error: 'Échec de la création du compte : ' + createError.message });
     userId = created.user.id;
     isNewAccount = true;
     const { error: profileError } = await supabaseAdmin.from('profiles').upsert({
-      id: userId, role: 'client', full_name: fullName || null, email: normalizedEmail, must_change_password: true,
+      id: userId, role: 'client', full_name: displayName, email: normalizedEmail, must_change_password: true,
     });
     if (profileError) return res.status(500).json({ error: 'Compte créé mais échec de la création du profil : ' + profileError.message });
   }
 
-  // L'identité métier est l'organisation, pas le compte : on s'assure que le dossier
-  // en a une AVANT de créer l'accès (le trigger dossier_acces y ajoute alors le compte
-  // comme membre). Le compte existant garde son mot de passe et ses autres dossiers.
-  if (!dossier.organization_id) {
-    // Compte existant rattaché à un seul client : le dossier rejoint ce client
-    // (même si le nom de l'établissement est écrit différemment). Sinon, recherche
-    // par nom + e-mail, ou création d'un nouveau client.
-    let targetOrg = null;
-    if (existingUser) {
-      const { data: memberships } = await supabaseAdmin
-        .from('organization_users').select('organization_id').eq('profile_id', userId).eq('statut', 'actif');
-      if (memberships && memberships.length === 1) targetOrg = memberships[0].organization_id;
-    }
-    if (targetOrg) {
-      const { error: attachError } = await supabaseAdmin.from('dossiers').update({ organization_id: targetOrg }).eq('id', dossierId);
-      if (attachError) return res.status(500).json({ error: 'Échec du rattachement à l\'organisation : ' + attachError.message });
-    } else {
-      const { error: orgError } = await supabaseAdmin.rpc('ensure_dossier_organization', {
-        p_dossier_id: dossierId, p_email: normalizedEmail,
-      });
-      if (orgError) return res.status(500).json({ error: 'Échec du rattachement à l\'organisation : ' + orgError.message });
-    }
+  // ---- Fiche établissement : celle du dossier, jamais celle d'un autre
+  // établissement qui partagerait la même adresse e-mail.
+  if (!primary.organization_id) {
+    const { data: orgId, error: orgError } = await supabaseAdmin.rpc('ensure_dossier_organization', {
+      p_dossier_id: primary.id, p_email: normalizedEmail,
+    });
+    if (orgError) return res.status(500).json({ error: 'Échec du rattachement à l\'établissement : ' + orgError.message });
+    primary.organization_id = orgId || primary.organization_id;
   }
 
-  const { data: existingAccess } = await supabaseAdmin
-    .from('dossier_acces').select('*').eq('dossier_id', dossierId).eq('profile_id', userId).maybeSingle();
-
-  const alreadyLinked = !!existingAccess;
-  if (!existingAccess) {
-    const initialStatut = existingActivated ? 'compte_active' : 'invitation_envoyee';
-    const { error: insErr } = await supabaseAdmin.from('dossier_acces').insert({
-      dossier_id: dossierId,
-      profile_id: userId,
-      statut: initialStatut,
-      activated_at: initialStatut === 'compte_active' ? new Date().toISOString() : null,
+  // ---- Rattachements explicites : uniquement les séjours cochés
+  const linked = [];
+  for (const d of sendable) {
+    if (accesByDossier[d.id]) continue;
+    const statut = activated ? 'compte_active' : 'invitation_envoyee';
+    const { error } = await supabaseAdmin.from('dossier_acces').insert({
+      dossier_id: d.id, profile_id: userId, statut,
+      activated_at: statut === 'compte_active' ? new Date().toISOString() : null,
       last_actor: auth.user.id,
     });
-    if (insErr) return res.status(500).json({ error: 'Échec de l\'association au dossier : ' + insErr.message });
+    if (error) return res.status(500).json({ error: 'Échec de l\'ouverture du séjour ' + (d.numero || '') + ' : ' + error.message });
+    linked.push(d.id);
   }
 
-  // E-mail : identifiants provisoires (nouveau compte ou compte jamais activé),
-  // sinon simple information "nouveau dossier ajouté" (aucun mot de passe).
-  const loginUrl = siteUrl() + '/espace-client/';
-  let subject, html;
-  if (temporaryPassword) {
-    const name = displayName || [dossier.contact_prenom, dossier.contact_nom].filter(Boolean).join(' ') || null;
-    subject = buildCredentialsSubject();
-    html = buildCredentialsHtml({ name, email: normalizedEmail, temporaryPassword, loginUrl, dossier });
-  } else {
-    subject = buildNewDossierLinkedSubject(dossier);
-    html = buildNewDossierLinkedHtml({ dossier, loginUrl });
+  // ---- Lien personnel (empreinte seule en base)
+  let link = null, tokenHash = null, expiresAt = null;
+  if (mode !== 'information') {
+    const raw = randomBytes(32).toString('base64url');
+    tokenHash = sha256(raw);
+    expiresAt = new Date(Date.now() + INVITATION_VALIDITY_DAYS[mode] * 86400000).toISOString();
+    link = `${CLIENT_ACCESS_SITE}reinitialiser-mot-de-passe.html?invitation=${raw}`;
+    await supabaseAdmin.from('client_invitations').update({ statut: 'remplacee' })
+      .eq('profile_id', userId).in('statut', ['envoyee', 'preparee']).not('token_hash', 'is', null);
   }
 
-  const mailResult = await sendMail({ to: normalizedEmail, subject, html });
+  const { data: inv, error: invErr } = await supabaseAdmin.from('client_invitations').insert({
+    profile_id: userId,
+    email: normalizedEmail,
+    organization_id: primary.organization_id || null,
+    dossier_ids: sendable.map(d => d.id),
+    kind: mode,
+    token_hash: tokenHash,
+    expires_at: expiresAt,
+    statut: 'preparee',
+    created_by: auth.user.id,
+    created_by_name: auth.profile.full_name || auth.profile.email,
+  }).select('id').single();
+  if (invErr) return res.status(500).json({ error: 'Échec de la préparation de l\'invitation : ' + invErr.message });
 
-  // Accès déjà existant : le renvoi est tracé avec son auteur (la création, elle,
-  // l'est par le trigger de dossier_acces via last_actor).
-  if (alreadyLinked && mailResult.sent) {
-    await supabaseAdmin.from('dossier_journal').insert({
-      dossier_id: dossierId, action: 'invitation_envoyee', details: 'Accès renvoyé à ' + normalizedEmail, actor: auth.user.id,
-    });
+  const mail = await sendMail({
+    to: normalizedEmail,
+    subject: buildClientAccessSubject(),
+    html: buildClientAccessHtml({ ...emailParams, link }),
+    text: buildClientAccessText({ ...emailParams, link }),
+  });
+  const sentAt = new Date().toISOString();
+  await supabaseAdmin.from('client_invitations').update(mail.sent
+    ? { statut: 'envoyee', sent_at: sentAt, resend_id: mail.id, error: null }
+    : { statut: 'echec', error: mail.error }).eq('id', inv.id);
+
+  if (mail.sent) {
+    const label = { activation: 'lien d\'activation', reinitialisation: 'lien de réinitialisation', information: 'information de connexion' }[mode];
+    await supabaseAdmin.from('dossier_journal').insert(sendable.map(d => ({
+      dossier_id: d.id, action: 'invitation_envoyee', actor: auth.user.id,
+      details: `Accès à l'espace client envoyé à ${normalizedEmail} (${label})`,
+    })));
   }
 
   return res.status(201).json({
     ok: true,
+    mode,
     isNewAccount,
-    alreadyLinked,
-    credentialsSent: !!temporaryPassword && mailResult.sent,
-    emailSent: mailResult.sent,
-    emailError: mailResult.error,
+    linked,
+    skipped: disabled.map(d => ({ id: d.id, numero: d.numero, reason: 'desactive' })),
+    invitationId: inv.id,
+    emailSent: mail.sent,
+    emailError: mail.error,
+    // Compatibilité avec l'ancien affichage.
+    alreadyLinked: linked.length === 0,
+    credentialsSent: false,
   });
 }

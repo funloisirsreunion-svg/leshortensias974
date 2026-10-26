@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Resend } from 'resend';
 import { getSupabaseAdmin } from '../../lib/supabaseAdmin.js';
 import { buildPasswordResetSubject, buildPasswordResetHtml } from '../../lib/passwordResetEmail.js';
@@ -17,9 +18,45 @@ function siteUrl() {
   return process.env.SITE_URL || 'https://leshortensias974.fr';
 }
 
+// Lien d'accès envoyé depuis l'Admin (api/admin/create-teacher.js) :
+// reinitialiser-mot-de-passe.html?invitation=<jeton>. La page (et non un simple
+// chargement du lien, que certains antivirus de messagerie font à l'avance)
+// échange ici le jeton contre un code de connexion à usage unique, pour que
+// l'enseignant définisse lui-même son mot de passe. Le jeton n'est jamais stocké
+// en clair (empreinte SHA-256) ; il expire et devient inutilisable dès que le
+// mot de passe est défini (trigger on_auth_password_changed).
+async function exchangeInvitation(req, res) {
+  const { token } = req.body || {};
+  if (typeof token !== 'string' || token.length < 20 || token.length > 200) {
+    return res.status(200).json({ status: 'invalid' });
+  }
+  const supabaseAdmin = getSupabaseAdmin();
+  const hash = createHash('sha256').update(token).digest('hex');
+  const { data: inv } = await supabaseAdmin.from('client_invitations')
+    .select('id, profile_id, email, kind, statut, expires_at').eq('token_hash', hash).maybeSingle();
+  if (!inv || inv.kind === 'information') return res.status(200).json({ status: 'invalid' });
+  if (inv.statut === 'utilisee') return res.status(200).json({ status: 'already_active' });
+  if (inv.statut !== 'envoyee') return res.status(200).json({ status: 'replaced' });
+  if (inv.expires_at && new Date(inv.expires_at).getTime() < Date.now()) {
+    return res.status(200).json({ status: 'expired' });
+  }
+  const { data: profile } = await supabaseAdmin.from('profiles')
+    .select('role, email').eq('id', inv.profile_id).maybeSingle();
+  if (!profile || profile.role !== 'client') return res.status(200).json({ status: 'invalid' });
+  const { data: generated, error } = await supabaseAdmin.auth.admin.generateLink({
+    type: 'recovery', email: profile.email || inv.email,
+  });
+  if (error || !generated?.properties?.hashed_token) return res.status(200).json({ status: 'error' });
+  return res.status(200).json({ status: 'ok', kind: inv.kind, email: profile.email || inv.email, token_hash: generated.properties.hashed_token });
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Méthode non autorisée.' });
+  }
+  if ((req.body || {}).action === 'invitation') {
+    try { return await exchangeInvitation(req, res); }
+    catch (error) { return res.status(200).json({ status: 'error' }); }
   }
 
   const genericResponse = () => res.status(200).json({ ok: true });

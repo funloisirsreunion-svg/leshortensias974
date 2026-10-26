@@ -45,7 +45,8 @@
 
     // État de l'accès client (aucun envoi automatique : l'Admin décide).
     function accesStatus(org, accesRows, users) {
-      if ((users || []).some(u => u.statut === 'actif') || accesRows.some(a => a.statut === 'compte_active')) return { label: 'Compte activé', color: 'green' };
+      // Activé = mot de passe défini par l'enseignant (dossier_acces), jamais du seul fait d'un envoi.
+      if (accesRows.some(a => a.statut === 'compte_active')) return { label: 'Compte activé', color: 'green' };
       if (accesRows.some(a => a.statut === 'invitation_envoyee')) return { label: 'Invitation envoyée', color: 'blue' };
       if (org.acces_a_preparer) return { label: 'Accès à préparer', color: 'orange' };
       return { label: 'Sans accès', color: 'gray' };

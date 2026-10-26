@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Accès clients — Administration | Les Hortensias</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="../style.css" />
+  <link rel="stylesheet" href="../app.css" />
+  <link rel="icon" href="/favicon.ico?v=2" sizes="48x48" />
+  <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml" />
+  <link rel="icon" href="/favicon-32.png?v=2" type="image/png" sizes="32x32" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
+  <link rel="manifest" href="/site.webmanifest?v=2" />
+</head>
+<body class="app-body">
+  <div class="app-topbar">
+    <div class="app-logo"><span><img class="logo-hortensia" src="/favicon.svg?v=2" alt="" aria-hidden="true" /></span><span>Administration — Les Hortensias</span></div>
+    <div class="app-user">
+      <a href="dashboard.html" class="app-btn app-btn-sm app-btn-outline" style="color:#fff;border-color:rgba(255,255,255,.5);">← Tableau de bord</a>
+      <button class="app-logout" id="logoutBtn">Déconnexion</button>
+    </div>
+  </div>
+
+  <div class="app-container">
+    <div class="app-card">
+      <h2>Accès clients — Classes de découverte</h2>
+      <p style="font-size:.88rem;color:var(--texte-clair);margin:-4px 0 14px;">
+        Statut de l'espace client et des informations demandées, pour chaque séjour. Aucun e-mail n'est envoyé depuis cette page :
+        « Envoyer l'accès » ouvre la fiche du séjour avec la fenêtre de confirmation, école par école.
+      </p>
+      <div class="app-filters">
+        <input type="search" id="q" placeholder="Rechercher une école, un e-mail…" style="flex:1;min-width:200px;" />
+        <select id="fAccess" aria-label="Statut de l'accès">
+          <option value="">Tous les statuts d'accès</option>
+          <option value="aucun">Aucun accès envoyé</option>
+          <option value="preparation">Invitation en préparation</option>
+          <option value="envoyee">Invitation envoyée</option>
+          <option value="activee">Compte activé</option>
+          <option value="expiree">Invitation expirée</option>
+          <option value="desactive">Accès désactivé</option>
+        </select>
+        <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="fRelance" /> À relancer uniquement</label>
+        <label style="display:flex;gap:6px;align-items:center;"><input type="checkbox" id="fPasses" /> Inclure séjours passés / annulés</label>
+      </div>
+      <div id="kpis" class="app-grid-3" style="margin-bottom:16px;"></div>
+      <div id="content" class="app-loading">Chargement…</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { getSupabaseClient } from '../lib/supabaseClient.js';
+    import { loadStaffContext, mountAdminNav, requirePagePermission } from '../lib/adminNav.js';
+    import { sejourDatesLabel } from '../lib/appConstants.js';
+    import { accessStatus, infoStatuses, needsFollowUp } from '../lib/clientAccess.js';
+
+    let supabase, staff, rows = [];
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const badge = (s) => `<span class="app-badge app-badge-${s.color}">${esc(s.label)}</span>${s.detail ? `<br/><span style="font-size:.75rem;color:var(--texte-clair);">${esc(s.detail)}</span>` : ''}`;
+    const fmtD = (ts) => ts ? new Date(ts).toLocaleDateString('fr-FR', { timeZone: 'Indian/Reunion', day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+    const groupBy = (list, key) => list.reduce((m, r) => ((m[r[key]] ||= []).push(r), m), {});
+
+    async function init() {
+      supabase = await getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { location.href = 'index.html?next=' + encodeURIComponent('acces-clients.html'); return; }
+      const { data: profile } = await supabase.from('profiles').select('role').eq('id', session.user.id).single();
+      if (!profile || profile.role !== 'admin') { location.href = 'index.html'; return; }
+      staff = await loadStaffContext(supabase);
+      if (!requirePagePermission(staff, ['clients.read'])) return;
+      mountAdminNav(staff, 'acces');
+      $('logoutBtn').addEventListener('click', async () => { await supabase.auth.signOut(); location.href = 'index.html'; });
+      ['q', 'fAccess', 'fRelance', 'fPasses'].forEach(id => $(id).addEventListener(id === 'q' ? 'input' : 'change', render));
+      await load();
+    }
+
+    async function load() {
+      const { data: dossiers, error } = await supabase.from('dossiers')
+        .select('id, numero, etablissement, commune, programme, client_type, statut, archived_at, organization_id, contact_email, contact_nom, contact_prenom, date_confirmee_debut, date_confirmee_fin, date_proposee, effectif_prev_eleves, effectif_prev_profs, effectif_prev_accompagnateurs, effectif_filles, effectif_garcons, effectif_profs_femmes, effectif_profs_hommes, effectif_accomp_femmes, effectif_accomp_hommes, niveaux, remarques_alimentaires')
+        .eq('client_type', 'school').is('archived_at', null);
+      if (error) { $('content').innerHTML = `<div class="app-msg app-msg-error">${esc(error.message)}</div>`; return; }
+      const ids = dossiers.map(d => d.id);
+      const [{ data: acces }, { data: invs }, { data: orgs }, { data: blocs }, { data: regimes }, { data: allergies }] = await Promise.all([
+        supabase.from('dossier_acces').select('dossier_id, statut, created_at, activated_at, profiles(email)').in('dossier_id', ids),
+        supabase.from('client_invitations').select('id, email, dossier_ids, kind, statut, sent_at, expires_at, error, created_at, created_by_name'),
+        supabase.from('organizations').select('id, acces_a_preparer'),
+        supabase.from('dossier_blocs').select('dossier_id, bloc, statut').in('dossier_id', ids).in('bloc', ['effectifs', 'regimes']),
+        supabase.from('regimes_alimentaires').select('dossier_id, nombre').in('dossier_id', ids).gt('nombre', 0),
+        supabase.from('dossier_allergies').select('dossier_id').in('dossier_id', ids),
+      ]);
+      const A = groupBy(acces || [], 'dossier_id'), B = groupBy(blocs || [], 'dossier_id');
+      const R = groupBy(regimes || [], 'dossier_id'), AL = groupBy(allergies || [], 'dossier_id');
+      const O = Object.fromEntries((orgs || []).map(o => [o.id, o]));
+      const today = new Date().toISOString().slice(0, 10);
+      rows = dossiers.map(d => {
+        const access = accessStatus({ acces: A[d.id] || [], invitations: (invs || []).filter(i => (i.dossier_ids || []).includes(d.id)), org: O[d.organization_id] });
+        const info = infoStatuses({ dossier: d, blocs: B[d.id] || [], regimes: R[d.id] || [], allergies: AL[d.id] || [] });
+        const fin = d.date_confirmee_fin || d.date_proposee;
+        const passe = (fin && fin < today) || ['annule', 'refusee', 'cloture', 'sejour_termine'].includes(d.statut);
+        const emails = [...new Set((A[d.id] || []).filter(a => a.statut !== 'desactive').map(a => a.profiles && a.profiles.email).filter(Boolean))];
+        return { d, access, info, passe, emails, relance: !passe && needsFollowUp(access, info), sortKey: d.date_confirmee_debut || d.date_proposee || '9999' };
+      }).sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+      render();
+    }
+
+    function render() {
+      const q = $('q').value.trim().toLowerCase();
+      const fa = $('fAccess').value, fr = $('fRelance').checked, fp = $('fPasses').checked;
+      const visible = rows.filter(r => (fp || !r.passe)
+        && (!fa || r.access.key === fa)
+        && (!fr || r.relance)
+        && (!q || [r.d.etablissement, r.d.commune, r.d.numero, r.d.contact_email, ...r.emails].some(v => (v || '').toLowerCase().includes(q))));
+      const actifs = rows.filter(r => !r.passe);
+      const count = (k) => actifs.filter(r => r.access.key === k).length;
+      $('kpis').innerHTML = `
+        <div class="app-kpi"><div class="app-kpi-num">${count('aucun') + count('preparation')}</div><div class="app-kpi-label">Sans invitation envoyée</div></div>
+        <div class="app-kpi"><div class="app-kpi-num">${count('envoyee') + count('expiree')}</div><div class="app-kpi-label">Invitées, compte non activé</div></div>
+        <div class="app-kpi"><div class="app-kpi-num">${actifs.filter(r => r.relance).length}</div><div class="app-kpi-label">À relancer</div></div>`;
+      if (!visible.length) { $('content').innerHTML = '<p style="color:var(--texte-clair);">Aucun séjour ne correspond aux filtres.</p>'; return; }
+      const canInvite = staff.can('clients.invite');
+      const PROG = { volcan: 'Volcan', nature: 'Nature' };
+      $('content').innerHTML = `
+        <div class="app-table-wrap">
+          <table class="app-table">
+            <thead><tr><th>École</th><th>Séjour</th><th>Accès client</th><th>Dernier envoi</th><th>Effectif prévisionnel</th><th>Couchage</th><th>Restrictions alimentaires</th><th></th></tr></thead>
+            <tbody>
+              ${visible.map(({ d, access, info, emails, relance }) => `
+                <tr>
+                  <td><a href="dossier.html?id=${d.id}" style="color:var(--vert-fonce);font-weight:700;">${esc(d.etablissement || '—')}</a>${d.commune ? `<br/><span style="font-size:.8rem;color:var(--texte-clair);">${esc(d.commune)}</span>` : ''}
+                    <br/><span style="font-size:.78rem;color:var(--texte-clair);">${esc(emails.join(', ') || d.contact_email || 'e-mail non renseigné')}</span></td>
+                  <td>${esc(PROG[d.programme] || '')} ${esc(sejourDatesLabel(d))}<br/><span style="font-size:.78rem;color:var(--texte-clair);">${esc(d.numero)}${d.statut === 'annule' ? ' · ANNULÉ' : ''}</span></td>
+                  <td>${badge(access)}${relance ? '<br/><span style="font-size:.75rem;color:#a5650e;font-weight:700;">À relancer</span>' : ''}</td>
+                  <td>${fmtD(access.lastSentAt)}${access.activatedAt ? `<br/><span style="font-size:.75rem;color:var(--texte-clair);">activé le ${fmtD(access.activatedAt)}</span>` : ''}</td>
+                  <td>${badge(info.effectifs)}</td>
+                  <td>${badge(info.couchage)}</td>
+                  <td>${badge(info.regimes)}</td>
+                  <td>${canInvite && d.statut !== 'annule' ? `<a class="app-btn app-btn-sm ${access.key === 'activee' ? 'app-btn-outline' : ''}" href="dossier.html?id=${d.id}&invite=1">${['envoyee', 'expiree', 'activee'].includes(access.key) ? 'Renvoyer' : 'Envoyer l\'accès'}</a>` : ''}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    init();
+  </script>
+</body>
+</html>
